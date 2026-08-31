@@ -1,0 +1,24 @@
+# Bundle patch layer for @crosery/dsh-viewer.
+#
+# One row. It loads the package's main entry as the Host half (an ordinary
+# Cordis plugin); the `dsh.client` declaration in package.json is what makes
+# the web app also load the ./client bundle as the browser half.
+#
+# The row carries no config, so every setting keeps its schema default: the
+# `display_file` tool is registered, `read` on opaque media is redirected to it,
+# and an image-capable route also receives admissible rasters in context. Those
+# preferences live in the `crosery-viewer` settings namespace and are editable
+# in $DSH_HOME/settings.yaml without a restart. To pin a deployment default
+# instead, restate the WHOLE config block — a patch replaces a row's config
+# rather than merging into it:
+#
+#   - insert:
+#       - id: viewer
+#         name: '@crosery/dsh-viewer'
+#         config:
+#           tool: true
+#           redirectRead: false
+#           feedModel: false
+- insert:
+    - id: viewer
+      name: '@crosery/dsh-viewer'
