@@ -41,6 +41,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Check repo invariants
+        run: npm run check
+
       # A client bundle may only require specifiers the loader's module table
       # answers. Anything else throws at plugin activation, in the browser,
       # where no CI would otherwise see it.

@@ -1,0 +1,93 @@
+# Two reviewers on every pull request.
+#
+# `invariants` is deterministic, needs no credentials, and runs on every PR
+# including forks. It encodes the drifts that a human reviewer reliably misses
+# — a README count that no longer matches the code, a locale dictionary short
+# one key, a peer range that silently excludes every prerelease of the harness
+# it claims to support.
+#
+# `claude` is judgement, and costs money per run. It stays dormant until an
+# ANTHROPIC_API_KEY secret exists, so forking this repo does not fail a job the
+# fork cannot possibly authenticate.
+name: PR review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  invariants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Check repo invariants
+        run: npm run check
+
+  claude:
+    runs-on: ubuntu-latest
+    # Secrets are absent on a fork's pull_request, so the review would have
+    # nothing to authenticate with. Skipping is the honest outcome; the
+    # deterministic job above still runs for external contributors.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    env:
+      HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          fetch-depth: 0
+
+      - name: Review
+        if: env.HAS_KEY == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # One comment that updates in place, rather than a new wall of text
+          # on every push.
+          use_sticky_comment: 'true'
+          # Read-only: this reviewer reports, it does not push commits.
+          claude_args: '--allowed-tools Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(npm run check),Bash(npm test)'
+          prompt: |
+            Review this pull request against the conventions in AGENTS.md and docs/.
+
+            Read AGENTS.md first — its three always-on constraints are the ones
+            most PRs get wrong, and they are invisible in a diff:
+
+            1. Host and browser halves compile under separate tsconfigs. A new
+               source file must land in the right `include`.
+            2. `src/client/**` may only value-import react and relative repo
+               files. Anything else breaks at plugin activation in the browser,
+               where no test would see it.
+            3. `inject` may only name services every target composition has. A
+               never-activating entry is a hard boot failure, not a graceful skip.
+
+            Then check what this diff specifically risks:
+
+            - Pure functions stay pure. `output.render`, `presentCall`,
+              `presentResult` and `presentationMeta` re-run during session replay,
+              so no I/O, clock or randomness may enter them.
+            - Card recovery keeps degrading rather than throwing. A throwing slot
+              entry is removed for the rest of the session, taking every viewer
+              card with it.
+            - Claims stay true. If the diff changes formats, counts or an API
+              name, both READMEs must agree with the code — `npm run check`
+              enforces the mechanical part, you judge the prose.
+            - New behaviour is tested in a way that could actually falsify it.
+              See the testing section of docs/development.md: HTTP behaviour
+              against a real server, external toolchains on real artifacts.
+
+            Report only what you would actually change, most important first,
+            with file:line. If the diff is fine, say so in one line — do not
+            manufacture findings. You may run `npm run check` and `npm test`.
