@@ -1,0 +1,97 @@
+# Upstream drift detector.
+#
+# The harness is on a fast prerelease train and its published `latest` tag is
+# far behind `next`. A plugin pinned to one train silently rots: the day an
+# export is renamed or removed, nothing here fails until a user hits it.
+#
+# This job installs whatever the chosen dist-tag currently resolves to and
+# typechecks against it. It is expected to fail sometimes — that failure IS the
+# signal, which is why it opens an issue instead of just going red on a branch
+# nobody is watching.
+name: Harness compatibility
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'npm dist-tag of the harness to test against'
+        default: next
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  against-tag:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: [next, alpha]
+    name: harness@${{ matrix.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Repoint every harness devDependency at ${{ matrix.tag }}
+        id: repoint
+        run: |
+          node - "${{ matrix.tag }}" <<'JS'
+          const { execSync } = require('node:child_process')
+          const fs = require('node:fs')
+          const tag = process.argv[2]
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+          const moved = []
+          const missing = []
+          for (const name of Object.keys(pkg.devDependencies)) {
+            // cordis and schemastery version independently of the harness train.
+            if (!name.startsWith('@deepseek-ai/dsh-')) continue
+            let version
+            try {
+              version = execSync(`npm view ${name}@${tag} version`, { encoding: 'utf8' }).trim()
+            } catch { version = '' }
+            if (version === '') { missing.push(name); continue }
+            pkg.devDependencies[name] = version
+            moved.push(`${name}@${version}`)
+          }
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n')
+          console.log('repointed:', moved.length, 'packages')
+          if (missing.length > 0) console.log('no build on this tag:', missing.join(', '))
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### harness@${tag}\n\n- repointed ${moved.length}\n- absent on tag: ${missing.join(', ') || 'none'}\n`)
+          JS
+
+      # The train can be published incomplete, so peer resolution is not the
+      # thing under test here — the type surface is.
+      - name: Install
+        run: npm install --no-audit --no-fund --ignore-scripts --legacy-peer-deps
+
+      - name: Typecheck against ${{ matrix.tag }}
+        run: npm run typecheck
+
+      - name: Test against ${{ matrix.tag }}
+        run: npm test
+
+      - name: Report drift
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ matrix.tag }}'
+            const title = `Harness compatibility broken against @${tag}`
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'upstream-drift',
+            })
+            const hit = existing.data.find(i => i.title === title)
+            const body = `The scheduled compatibility job failed against the \`${tag}\` harness train.\n\nRun: ${url}\n\nThis usually means an upstream export was renamed or removed. Check the failing typecheck output before widening the peer range in \`package.json\`.`
+            if (hit) {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: hit.number, body })
+            } else {
+              await github.rest.issues.create({ owner: context.repo.owner, repo: context.repo.repo, title, body, labels: ['upstream-drift'] })
+            }

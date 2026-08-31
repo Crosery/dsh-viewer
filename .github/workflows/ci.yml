@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The harness refuses to boot on an odd major, so those are the two
+        # majors a user can actually be running.
+        node: ['22.19', '24']
+    name: node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      # Host and browser halves are separate TypeScript programs on purpose:
+      # both augment the same cordis Context and disagree about what `sessions`
+      # is, so one program seeing both augmentations resolves the wrong one.
+      - name: Typecheck both halves
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      # A client bundle may only require specifiers the loader's module table
+      # answers. Anything else throws at plugin activation, in the browser,
+      # where no CI would otherwise see it.
+      - name: Assert client bundle purity
+        run: |
+          node - <<'JS'
+          const { readFileSync } = require('node:fs')
+          const ALLOWED = new Set([
+            'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
+            '@deepseek-ai/cordis', '@deepseek-ai/dsh-client-store',
+            '@deepseek-ai/dsh-client-ui-slots', '@deepseek-ai/dsh-client-ui-primitives',
+          ])
+          const bundle = readFileSync('lib/client.js', 'utf8')
+          const required = [...bundle.matchAll(/require\("([^"]+)"\)/g)].map(m => m[1])
+          const foreign = [...new Set(required)].filter(s => !ALLOWED.has(s))
+          if (foreign.length > 0) {
+            console.error('client bundle requires specifiers the module table cannot answer:', foreign)
+            process.exit(1)
+          }
+          if (/\bnode:/.test(bundle)) {
+            console.error('client bundle references a node: builtin')
+            process.exit(1)
+          }
+          console.log('client bundle is pure —', required.length, 'requires, all in the module table')
+          JS
+
+      - name: Assert the package ships what dsh needs to activate it
+        run: |
+          npm pack --silent >/dev/null
+          TARBALL=$(ls *.tgz)
+          for path in package/package.json package/cordis.patch.yml package/lib/index.js package/lib/client.js; do
+            tar -tzf "$TARBALL" | grep -qx "$path" || { echo "missing from package: $path"; exit 1; }
+          done
+          echo "package contents ok"

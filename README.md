@@ -118,6 +118,12 @@ Two tsconfigs are required, not fastidiousness: both halves augment the same `@d
 
 `tests/asset-route.test.ts` mounts the handler on a real `node:http` server and issues real requests — range correctness cannot be proven by unit-testing the parser. `tests/convert.test.ts` builds a DOCX with LibreOffice, converts it back, and asserts the artifact starts with `%PDF-`.
 
+## Harness compatibility
+
+Built and tested against the newest **coherent** harness train, `next` = `0.1.1-rc.2`, and the peer ranges carry an explicit prerelease branch so every `0.1.x` prerelease resolves — a naive broad range silently excludes them all.
+
+`0.1.2-alpha.2` is deliberately **not** claimed. That train is published incomplete (`@deepseek-ai/dsh-client-runtime` has no build on it, so it cannot install as a set) and it drops `installSettingsSection` and `settingsNamespace` from `@deepseek-ai/dsh-settings` with no replacement in the published types. Claiming support would hand users an `ERESOLVE` or a runtime crash. The peer range therefore stops below `0.1.2`, and a scheduled CI job (`.github/workflows/harness-compat.yml`) re-tests against the `next` and `alpha` tags weekly and opens an issue the moment upstream moves — so the range widens on evidence, not optimism.
+
 ## Known limitations
 
 - Local file paths only; URLs are not accepted.

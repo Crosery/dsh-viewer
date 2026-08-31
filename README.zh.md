@@ -194,6 +194,12 @@ npm test              # 66 个用例
 
 **PDF 的 iframe 不能加 `sandbox`。** 不带 `allow-same-origin` 的 sandbox 给 frame 一个不透明 origin，而 Chrome 内置 PDF 阅读器拒绝在那里运行——frame 里显示的是「此页面已被 Chrome 屏蔽」而不是文档。PDF 本来也不需要 sandbox：它以 `application/pdf` + `nosniff` 下发，浏览器交给自己隔离的阅读器，不会在本 origin 执行任何东西。本地 HTML 正相反——那是 agent 可能刚写出来的任意脚本——所以它保留不透明 origin，并由 Host 随响应下发的 `sandbox` CSP 兜底。
 
+## Harness 版本兼容
+
+构建与测试针对**当前唯一完整**的 harness 序列：`next` = `0.1.1-rc.2`。peer 范围带显式预发布分支，否则看似很宽的范围会把 `0.1.x` 的所有预发布静默排除。
+
+**不声明支持 `0.1.2-alpha.2`。** 那条序列发布不完整（`@deepseek-ai/dsh-client-runtime` 在该 tag 上没有构建，整体装不上），并且从 `@deepseek-ai/dsh-settings` 移除了 `installSettingsSection` 与 `settingsNamespace`，已发布的类型里没有替代品。声明支持只会让用户拿到 `ERESOLVE` 或运行时崩溃。因此 peer 范围止步于 `0.1.2` 之下；`.github/workflows/harness-compat.yml` 每周对 `next` 和 `alpha` 两条 tag 重跑类型检查与测试，上游一动就自动开 issue——范围按证据放宽，不靠乐观。
+
 ## 已知限制
 
 - **只接受本地文件路径**，不接受 URL。规范值的形状留了扩展位，但 v1 没做。

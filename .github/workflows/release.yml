@@ -1,0 +1,78 @@
+# Cut a release from a tag.
+#
+# The attached tarball is what lets users install without the profile's
+# `allowBuilds` build-approval step, so it is built by CI rather than from
+# whatever happened to be on a laptop.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach to'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Verify before publishing anything
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Refuse a tag that disagrees with package.json
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          PKG="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "tag $TAG does not match package.json $PKG"
+            exit 1
+          fi
+          echo "tag matches package.json: $TAG"
+
+      - name: Pack
+        id: pack
+        run: |
+          npm pack --silent >/dev/null
+          # A version-free asset name so `releases/latest/download/dsh-viewer.tgz`
+          # keeps resolving after the next release. `latest/download/` resolves
+          # `latest` at request time but takes the filename literally.
+          cp "$(ls *.tgz)" dsh-viewer.tgz
+          ls -la dsh-viewer.tgz
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          gh release view "$TAG" >/dev/null 2>&1 \
+            && gh release upload "$TAG" dsh-viewer.tgz --clobber \
+            || gh release create "$TAG" dsh-viewer.tgz --generate-notes --title "$TAG"
+
+      # Only runs when a publish token is configured; the release itself never
+      # depends on npm being reachable.
+      - name: Publish to npm
+        if: ${{ env.NODE_AUTH_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
