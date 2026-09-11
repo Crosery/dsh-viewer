@@ -77,9 +77,18 @@ jobs:
             && gh release upload "$TAG" dsh-viewer.tgz --clobber \
             || gh release create "$TAG" dsh-viewer.tgz --generate-notes --title "$TAG"
 
-      # Only runs when a publish token is configured; the release itself never
-      # depends on npm being reachable. The token is the job-level env above —
-      # that is the whole point of it being there.
+      # Opt-in, and off by default.
+      #
+      # A configured token is not evidence that this package can be published:
+      # the first release run with a token present got `404 Not Found - PUT
+      # https://registry.npmjs.org/@crosery%2fdsh-viewer`, which is how npm
+      # reports an unauthorized scoped publish. Attempting it on every tag turns
+      # each release red for a reason that is not about the release.
+      #
+      # Turn it on by setting the repository variable NPM_PUBLISH=true (Settings
+      # → Secrets and variables → Actions → Variables) once the npm scope exists
+      # and NPM_TOKEN can publish to it. With the variable unset and a token
+      # missing, the step is skipped rather than failing.
       - name: Publish to npm
-        if: ${{ env.NODE_AUTH_TOKEN != '' }}
+        if: ${{ vars.NPM_PUBLISH == 'true' }}
         run: npm publish --access public
