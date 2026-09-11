@@ -36,13 +36,20 @@ The release tarball carries the same files for two other reasons: a pinned, vers
 
 ## npm
 
-Not yet published. When you publish:
+Not yet published. Publishing is **opt-in and off by default**: a tag push builds, verifies and attaches the tarball, and skips npm unless you say otherwise.
+
+To publish, two things are required:
+
+1. `NPM_TOKEN` as a repository secret — a token that can actually publish to the `@crosery` scope. A token alone is not enough: the first attempt with one configured came back `404 Not Found - PUT https://registry.npmjs.org/@crosery%2fdsh-viewer`, which is how npm reports an unauthorized scoped publish. No `@crosery/*` package exists on the registry yet, so the scope has to exist and the token's account has to be able to write to it.
+2. `NPM_PUBLISH=true` as a repository **variable** (Settings → Secrets and variables → Actions → Variables). Without it the publish step is skipped, so a tag run stays green while npm is not set up.
+
+To publish by hand instead:
 
 ```sh
 npm login && npm publish --access public
 ```
 
-Or set `NPM_TOKEN` as a repository secret and let the release workflow do it. `files` in `package.json` already limits the package to `lib/`, the manifests, the docs and `assets/` — CI asserts the packed tarball contains `cordis.patch.yml`, without which dsh installs the package and activates nothing.
+`files` in `package.json` already limits the package to `lib/`, the manifests, the docs and `assets/` — CI asserts the packed tarball contains `cordis.patch.yml`, without which dsh installs the package and activates nothing.
 
 ## Plugin market
 

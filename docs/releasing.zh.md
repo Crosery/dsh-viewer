@@ -36,13 +36,20 @@ release tarball 带着同样的文件，另有两条理由：可锁定版本的�
 
 ## npm
 
-尚未发布。要发时：
+尚未发布。发布是**显式开关、默认关闭**：推 tag 只负责构建、校验并附加 tarball，除非你明确要求，否则跳过 npm。
+
+要发布需要两样东西：
+
+1. `NPM_TOKEN` 仓库 secret —— 一个**确实能发布到 `@crosery` scope** 的 token。光有 token 不够：第一次带着 token 尝试，结果就是 `404 Not Found - PUT https://registry.npmjs.org/@crosery%2fdsh-viewer`，这是 npm 对「无权发布该 scope」的报法。registry 上还从未有过任何 `@crosery/*` 包，所以 scope 得先存在，token 对应的账号也得能写它。
+2. `NPM_PUBLISH=true` 仓库**变量**（Settings → Secrets and variables → Actions → Variables）。没有它发布步骤直接跳过，npm 还没准备好时推 tag 也能保持绿色。
+
+要手工发布：
 
 ```sh
 npm login && npm publish --access public
 ```
 
-或者把 `NPM_TOKEN` 配成仓库 secret 交给 release workflow。`package.json` 的 `files` 已经把包限制在 `lib/`、清单、文档和 `assets/`；CI 会断言打包产物里有 `cordis.patch.yml`——缺了它 dsh 会装上包却不激活任何层。
+`package.json` 的 `files` 已经把包限制在 `lib/`、清单、文档和 `assets/`；CI 会断言打包产物里有 `cordis.patch.yml`——缺了它 dsh 会装上包却不激活任何层。
 
 ## 插件市场
 
