@@ -137,6 +137,31 @@ interface SettingsServiceLike {
 }
 
 /**
+ * Value mirror of cordis's `FiberState` members {@link isUnloading} compares
+ * against. A const enum has no runtime object to import, and the comparison has
+ * to run — the same mirror the harness itself carries for this check.
+ */
+const FIBER_DISPOSED = 4
+const FIBER_UNLOADING = 5
+
+/**
+ * Whether this plugin's own fiber is tearing down, rather than merely losing the
+ * settings service.
+ *
+ * The detach path exists to hand a *still-running* plugin back its composition
+ * entry. When the plugin itself is unloading there is nothing to fall back to:
+ * re-reconciling would re-register the display tool on a fiber that is already
+ * disposing it, so the fallback work is skipped instead.
+ *
+ * @param ctx - this plugin's context.
+ * @returns true while its fiber is unloading or disposed.
+ */
+function isUnloading(ctx: Context): boolean {
+  const state = ctx.fiber?.state
+  return state === FIBER_UNLOADING || state === FIBER_DISPOSED
+}
+
+/**
  * Mount the `crosery-viewer` namespace over whichever settings API exists.
  *
  * Only called while a settings service is present: a composition without one
@@ -162,11 +187,16 @@ export function mountSettingsSection(ctx: Context, config: ViewerSettings, hooks
     const scope = settings.register(VIEWER_NAMESPACE, ViewerSettingsSchema, { base: config })
     hooks.setSource(() => scope.get())
     scoped.effect(() => () => {
+      // Owner unload is not a detach: see {@link isUnloading}.
+      if (isUnloading(ctx)) return
       hooks.setSource(() => config)
       hooks.onChange()
     }, '@crosery/dsh-viewer: settings detach')
     hooks.onChange()
-    scope.watch(() => { hooks.onChange() })
+    scope.watch(() => {
+      if (isUnloading(ctx)) return
+      hooks.onChange()
+    })
   })
 }
 
