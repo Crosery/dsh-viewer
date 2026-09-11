@@ -12,11 +12,41 @@
  * @module @crosery/dsh-viewer/client/card-model
  */
 
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   DISPLAY_TOOL, classifyPath, displayValueFrom, modelImageFrom,
   type DisplayValue,
 } from '../contract.ts'
+
+/**
+ * The slice of one tool-call block this card reads, declared structurally.
+ *
+ * NOT imported from the client shell's package: that block type has lived in
+ * two different packages across harness trains (`dsh-client-runtime` up to
+ * 0.1.1, `dsh-client-ui-chat` from 0.1.2) and the older one stopped publishing
+ * entirely. A type-only import would pin this plugin's toolchain to one train
+ * and make the other fail to typecheck — the same class of breakage as an
+ * import of a removed value export, one compilation later.
+ *
+ * Structure is also what this module actually uses. Every read below is
+ * defensive and every field is optional: the block may be a live call, a
+ * replayed log entry from an older build, or a shape a newer build wrote.
+ */
+export interface ToolCallBlockLike {
+  /** Discriminates the running arm from the settled one. */
+  kind?: string
+  /** Raw arguments, on the running arm. */
+  argsRaw?: string
+  /** The settled call this result belongs to. */
+  call?: { argsRaw?: string } | null
+  /** Whether the tool reported a failure. */
+  isError?: boolean
+  /** Model-facing content blocks. */
+  content?: readonly unknown[]
+  /** Structured failure, when there is one. */
+  error?: { code?: string } | null
+  /** Presentation metadata this plugin wrote, on the settled arm. */
+  meta?: unknown
+}
 
 /** What the card renders right now. */
 export type CardState =
@@ -33,8 +63,10 @@ export type CardState =
    */
   | { phase: 'bare'; path: string | undefined; message: string }
 
-/** Whether one block is the settled arm of the union. */
-function isSettled(block: ToolCallBlock): block is Extract<ToolCallBlock, { kind: 'tool-result' }> {
+/** Whether one block is the settled arm of the union, which carries the result. */
+function isSettled(
+  block: ToolCallBlockLike,
+): block is ToolCallBlockLike & { kind: 'tool-result'; content: readonly unknown[] } {
   return 'kind' in block && block.kind === 'tool-result'
 }
 
@@ -46,7 +78,7 @@ function isSettled(block: ToolCallBlock): block is Extract<ToolCallBlock, { kind
  * @param block - the running or settled call.
  * @returns the requested path, or `undefined` when it cannot be read.
  */
-export function argumentPathOf(block: ToolCallBlock): string | undefined {
+export function argumentPathOf(block: ToolCallBlockLike): string | undefined {
   const raw = isSettled(block) ? block.call?.argsRaw : block.argsRaw
   if (typeof raw !== 'string' || raw.length === 0) return undefined
   try {
@@ -145,7 +177,7 @@ export function envelopeValueOf(content: readonly unknown[], inContext: boolean)
  *   which recovery path applies, since only `display_file` writes metadata.
  * @returns the state to render.
  */
-export function cardModel(block: ToolCallBlock, toolName: string): CardState {
+export function cardModel(block: ToolCallBlockLike, toolName: string): CardState {
   const path = argumentPathOf(block)
   if (!isSettled(block)) return { phase: 'running', path }
   if (block.isError) {

@@ -8,20 +8,19 @@
 
 import { equal, ok } from 'node:assert/strict'
 import { test } from 'node:test'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
-import { argumentPathOf, cardModel, contentImageOf, envelopeValueOf } from '../src/client/card-model.ts'
+import { argumentPathOf, cardModel, contentImageOf, envelopeValueOf, type ToolCallBlockLike } from '../src/client/card-model.ts'
 import { formatDisplayOutput } from '../src/display-file.ts'
 import { ASSET_ROUTE, DISPLAY_TOOL, READ_IMAGE_TOOL } from '../src/contract.ts'
 
 const IMAGE = { attachmentId: 'att-1', mediaType: 'image/png', bytes: 100, width: 20, height: 10 }
 
 /** A running call, as the tree hands it over before the result lands. */
-function running(args: string): ToolCallBlock {
-  return { callId: 'c1', name: DISPLAY_TOOL, argsRaw: args, turn: 1, step: 1, time: 0, callView: null, subCalls: [] } as unknown as ToolCallBlock
+function running(args: string): ToolCallBlockLike {
+  return { callId: 'c1', name: DISPLAY_TOOL, argsRaw: args, turn: 1, step: 1, time: 0, callView: null, subCalls: [] } as unknown as ToolCallBlockLike
 }
 
 /** A settled call. */
-function settled(fields: Partial<Record<string, unknown>>): ToolCallBlock {
+function settled(fields: Partial<Record<string, unknown>>): ToolCallBlockLike {
   return {
     kind: 'tool-result',
     seq: 2,
@@ -35,7 +34,7 @@ function settled(fields: Partial<Record<string, unknown>>): ToolCallBlock {
     resultView: null,
     subCalls: [],
     ...fields,
-  } as unknown as ToolCallBlock
+  } as unknown as ToolCallBlockLike
 }
 
 test('a dispatched call renders the path it named before any result exists', () => {

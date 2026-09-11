@@ -12,7 +12,9 @@
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-剩下的交给 `.github/workflows/release.yml`：typecheck、测试、构建，**tag 与 `package.json` 不一致直接拒绝**，然后打包并附加 tarball。只有配了 `NPM_TOKEN` 才会发 npm——发布 release 本身不依赖 npm 可达。
+剩下的交给 `.github/workflows/release.yml`：typecheck、测试、校验提交的 `lib/` 与重新构建一致，**tag 与 `package.json` 不一致直接拒绝**，然后打包并附加 tarball。只有配了 `NPM_TOKEN` 才会发 npm——发布 release 本身不依赖 npm 可达。
+
+构建产物是**提交进仓库**的，所以 tag 本身就能用官方 git 命令装。`npm run build` 写出 `src/` 当前的含义，`npm run check:dist` 负责拒绝 `lib/` 与之一致的提交，CI 两个都跑。
 
 ## 为什么资产名不带版本号
 
@@ -24,9 +26,13 @@ https://github.com/Crosery/dsh-viewer/releases/latest/download/dsh-viewer.tgz
 
 `latest/download/` **只在请求时解析 `latest`，文件名是照字面取的**。资产名带版本号的话，这个链接发布当天有效，下一次发版就 404——而且不会有人察觉，包括作者自己。要么让名字不带版本，要么在 URL 里钉住 tag。
 
-## 为什么要有 tarball
+## 为什么构建产物进仓库、为什么还留 tarball
 
-从源码安装会让用户在 profile 的 `allowBuilds` 里批准一个构建步骤。预构建 tarball 免掉这一步。插件市场也更认它：条目可以带 `tarball:` 字段，市场会优先展示它而不是源码构建命令。
+pnpm 默认拒绝执行 git 来源包的构建脚本，除非用户在 `allowBuilds` 里预先批准；而它判断「这个包需要构建」的依据就是 `prepare` 脚本本身。只要仓库在安装期构建，用户用官方安装命令就必然撞 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`——而 harness 自带的安装器会把它归类成插件侧的分发问题。
+
+所以本仓库的规矩是：**安装期不跑任何构建脚本，产物进仓库**。`scripts/check-dist.mjs` 就是让这条规矩不烂掉的东西。
+
+release tarball 带着同样的文件，另有两条理由：可锁定版本的安装 URL，以及插件市场的 `tarball:` 字段——市场会优先展示它而不是源码构建命令。
 
 ## npm
 

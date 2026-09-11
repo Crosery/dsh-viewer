@@ -65,16 +65,59 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### harness@${tag}\n\n- repointed ${moved.length}\n- absent on tag: ${missing.join(', ') || 'none'}\n`)
           JS
 
-      # The train can be published incomplete, so peer resolution is not the
-      # thing under test here — the type surface is.
-      - name: Install
+      # Two different questions, two different installs.
+      #
+      # Does this plugin still compile against the train's published *types*?
+      # That is the drift signal, and it must be answerable even on a train whose
+      # peer graph does not resolve — `--legacy-peer-deps` ignores the graph and
+      # materializes the packages anyway.
+      - name: Install for typecheck
         run: npm install --no-audit --no-fund --ignore-scripts --legacy-peer-deps
 
       - name: Typecheck against ${{ matrix.tag }}
         run: npm run typecheck
 
+      # Do this plugin's own tests pass? They import the harness packages at
+      # runtime, so they need a graph that actually resolved. A train published
+      # incomplete cannot offer that, and saying so is more useful than a red
+      # that reads like a code defect: `dsh-tools` peer-requires packages that
+      # several alpha tags never shipped, and `--legacy-peer-deps` would install
+      # `dsh-tools` without them, turning "upstream is incomplete" into
+      # ERR_MODULE_NOT_FOUND inside our test run.
+      #
+      # Only ERESOLVE counts as incomplete. Anything else — a registry outage, a
+      # tarball that 404s — is a real failure and keeps the drift report below.
+      - name: Install the resolved graph
+        id: peers
+        run: |
+          if npm install --no-audit --no-fund --ignore-scripts > /tmp/peers.log 2>&1; then
+            echo "resolved=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if grep -q 'ERESOLVE' /tmp/peers.log; then
+            echo "resolved=false" >> "$GITHUB_OUTPUT"
+            tail -30 /tmp/peers.log
+            exit 0
+          fi
+          echo "install failed for a reason other than peer resolution:"
+          tail -60 /tmp/peers.log
+          exit 1
+
       - name: Test against ${{ matrix.tag }}
+        if: steps.peers.outputs.resolved == 'true'
         run: npm test
+
+      - name: Report an incomplete train
+        if: steps.peers.outputs.resolved == 'false'
+        run: |
+          echo "::notice title=harness@${{ matrix.tag }} is published incomplete::its own peer graph does not resolve, so this plugin's runtime tests cannot run against it. Types still compiled, which is the drift signal."
+          {
+            echo "### harness@${{ matrix.tag }} — incomplete train"
+            echo
+            echo 'The harness set on this tag does not resolve its own peer graph, so runtime tests were **not run**. Typecheck still ran against the published types.'
+            echo
+            echo 'Not a defect in this plugin, and not something to adapt to: the peer range widens when a coherent train exists.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report drift
         if: failure()

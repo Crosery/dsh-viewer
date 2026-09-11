@@ -50,10 +50,16 @@ PDF and a local HTML page, live:
 ## Install
 
 ```sh
-dsh plugin --profile web add @crosery/dsh-viewer
+dsh plugin --profile web add github:crosery/dsh-viewer
 ```
 
 Then add the package name to `dsh.profile.bundles` in your profile's `package.json` and **restart the profile** — bundle membership changes do not hot-reload.
+
+The repository ships its built halves, so this needs no build step and no `allowBuilds` entry in your profile. The same code is attached to every release as a tarball if you prefer a pinned, versioned install:
+
+```sh
+dsh plugin --profile web add https://github.com/Crosery/dsh-viewer/releases/latest/download/dsh-viewer.tgz
+```
 
 Office rendering additionally needs LibreOffice on `PATH` (or the macOS app bundle):
 
@@ -110,8 +116,10 @@ Edit `$DSH_HOME/settings.yaml` — hot-reloaded, no restart.
 ```sh
 npm install
 npm run typecheck   # host and client are separate programs — see below
-npm run build       # two .d.ts trees + two bundles
-npm test            # 66 cases
+npm run build       # two .d.ts trees + two bundles; the result is committed
+npm run check       # repo invariants: README counts, locale keys, peer range, install path
+npm run check:dist  # the committed lib/ is byte-identical to a fresh build
+npm test            # 71 cases
 ```
 
 Two tsconfigs are required, not fastidiousness: both halves augment the same `@deepseek-ai/cordis` `Context`, and `sessions` is `SessionStore` on the host but `ISessions` in the browser. One program seeing both augmentations silently resolves the wrong one, because `skipLibCheck` hides the conflict.

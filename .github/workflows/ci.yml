@@ -44,6 +44,12 @@ jobs:
       - name: Check repo invariants
         run: npm run check
 
+      # The built halves are committed so the git channel installs without the
+      # user approving a build script; this refuses a dist that drifted from
+      # src/.
+      - name: Assert the committed dist matches a fresh build
+        run: npm run check:dist
+
       # A client bundle may only require specifiers the loader's module table
       # answers. Anything else throws at plugin activation, in the browser,
       # where no CI would otherwise see it.

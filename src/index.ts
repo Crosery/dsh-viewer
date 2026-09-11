@@ -17,7 +17,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+// Type-only: pulls the ctx.settings merge. The two value helpers this plugin
+// used to import were removed in 0.1.2; `mountSettingsSection` below drives the
+// service instead, on both trains.
+import type {} from '@deepseek-ai/dsh-settings'
 // Type-only: pulls the ctx.webServer / ctx.tools / ctx.systemPrompt merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -42,8 +45,14 @@ export { artifactName, convertDocument, resolveConverter } from './convert.ts'
 export { isMisdirectedRead, mediaReadValue, readPathOf } from './read-redirect.ts'
 export { applySupersedeReadImage } from './supersede-read-image.ts'
 
-/** Settings namespace this plugin owns. */
-export const VIEWER_NAMESPACE = settingsNamespace(VIEWER_SETTINGS_NAMESPACE)
+/**
+ * Settings namespace this plugin owns, as the settings service keys it.
+ *
+ * Plain string rather than a branded one since 0.1.2 removed the `settingsNamespace`
+ * constructor that produced the brand. Consumers hand it to `ctx.settings`, which
+ * validates it at registration either way.
+ */
+export const VIEWER_NAMESPACE = VIEWER_SETTINGS_NAMESPACE
 
 export const name = '@crosery/dsh-viewer'
 
@@ -82,6 +91,84 @@ export const inject = ['tools', 'fs', 'systemPrompt']
 export type Config = ViewerSettings
 
 export const Config = ViewerSettingsSchema
+
+/** One registered namespace's owner-facing handle, as this plugin reads it. */
+interface SettingsScopeLike {
+  get(): ViewerSettings
+  watch(callback: () => void): () => void
+}
+
+/** Callbacks a mount invokes. Identical on every harness train that has a mount. */
+export interface SettingsHooks {
+  /** Receive the authoritative value: the resolved section while one is attached. */
+  setSource(current: () => ViewerSettings): void
+  /** Re-judge derived state after an attach, a detach, or a committed change. */
+  onChange(): void
+}
+
+/**
+ * Structural view of the settings service.
+ *
+ * 0.1.2 moved this mount from a package export to a service method:
+ * `installSettingsSection(ctx, ns, schema, entry, hooks)` became
+ * `ctx.settings.installSection(owner, ns, schema, entry, hooks)`, and
+ * `settingsNamespace()` — the brand constructor — went with it. The hooks and
+ * the registration they wire are unchanged, so this plugin drives whichever
+ * surface the running harness publishes.
+ *
+ * A static import of the removed export is what actually broke users: ESM
+ * resolves named exports before any code runs, so on 0.1.2 and later the whole
+ * host entry failed to load — `does not provide an export named
+ * 'installSettingsSection'` — instead of degrading to entry-config behavior.
+ */
+interface SettingsServiceLike {
+  installSection?(
+    owner: Context,
+    ns: string,
+    schema: unknown,
+    entry: ViewerSettings,
+    hooks: SettingsHooks,
+  ): void
+  register?(
+    ns: string,
+    schema: unknown,
+    options: { base?: Partial<ViewerSettings> },
+  ): SettingsScopeLike
+}
+
+/**
+ * Mount the `crosery-viewer` namespace over whichever settings API exists.
+ *
+ * Only called while a settings service is present: a composition without one
+ * keeps the composition entry as the sole source, which `reconcile()` in
+ * {@link apply} establishes on its own.
+ *
+ * @param ctx - plugin context: the mount's owner, and the injection parent.
+ * @param config - composition entry config; both the `base` layer and the
+ *   fallback value once the settings service detaches.
+ * @param hooks - source and change callbacks.
+ */
+export function mountSettingsSection(ctx: Context, config: ViewerSettings, hooks: SettingsHooks): void {
+  ctx.inject(['settings'], (scoped) => {
+    const settings = scoped.settings as unknown as SettingsServiceLike
+    if (typeof settings.installSection === 'function') {
+      settings.installSection(ctx, VIEWER_NAMESPACE, ViewerSettingsSchema, config, hooks)
+      return
+    }
+    // 0.1.1 and earlier: drive the registration the removed helper drove, so
+    // settings keep working across the rename instead of silently reverting to
+    // the composition entry.
+    if (typeof settings.register !== 'function') return
+    const scope = settings.register(VIEWER_NAMESPACE, ViewerSettingsSchema, { base: config })
+    hooks.setSource(() => scope.get())
+    scoped.effect(() => () => {
+      hooks.setSource(() => config)
+      hooks.onChange()
+    }, '@crosery/dsh-viewer: settings detach')
+    hooks.onChange()
+    scope.watch(() => { hooks.onChange() })
+  })
+}
 
 /**
  * Mount the settings section, the asset route, the tool, and the read redirect.
@@ -146,7 +233,7 @@ export function apply(ctx: Context, config: Config): void {
     disposeTool = undefined
   }, '@crosery/dsh-viewer: display tool')
 
-  installSettingsSection(ctx, VIEWER_NAMESPACE, ViewerSettingsSchema, config, {
+  mountSettingsSection(ctx, config, {
     setSource: (current) => { source = current },
     onChange: reconcile,
   })
