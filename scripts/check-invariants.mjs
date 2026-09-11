@@ -107,6 +107,26 @@ for (const ext of Object.keys(MODEL_IMAGE_EXTENSIONS)) {
   if (MEDIA_TABLE[ext]?.kind !== 'image') fail('contract', `${ext} is model-image admissible but not classified as image`)
 }
 
+// 8. The install path itself. pnpm refuses to run a git-hosted package's build
+//    scripts unless the user pre-approves them in their profile's allowBuilds,
+//    so the official git-channel command only works while the repository needs
+//    no build: no `prepare` script, and the entry the package declares present
+//    in the committed tree. Either one missing turns every user's one-line
+//    install into ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED.
+if (pkg.scripts?.prepare !== undefined) {
+  fail('package.json', 'declares a prepare script — a git install then requires the user to approve a build step in allowBuilds')
+}
+const entry = pkg.exports?.['.']?.default ?? pkg.main
+if (typeof entry !== 'string') fail('package.json', 'declares no main/exports["."].default for the host half')
+else if (!existsSync(join(root, entry))) fail('distribution', `the declared entry ${entry} is not in the repository — a git install would load nothing`)
+const clientEntry = pkg.exports?.['./client']?.default
+if (typeof clientEntry === 'string' && !existsSync(join(root, clientEntry))) {
+  fail('distribution', `the declared client entry ${clientEntry} is not in the repository`)
+}
+if (existsSync(join(root, '.gitignore')) && /^\s*lib\/?\s*$/m.test(read('.gitignore'))) {
+  fail('.gitignore', 'ignores lib/ — the built halves must be committed for the git channel to install without a build')
+}
+
 const summary = [
   problems.length === 0 ? '## Invariants OK' : `## ${problems.length} invariant(s) need changes`,
   '',

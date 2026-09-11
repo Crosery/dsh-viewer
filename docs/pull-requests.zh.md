@@ -37,7 +37,7 @@ happens at all.
 
 | 检查 | 触发 | 守住什么 |
 | --- | --- | --- |
-| `CI` | push、PR | 两个半边 typecheck、构建、66 个测试、不变量、客户端 bundle 纯度、打包产物内容 |
+| `CI` | push、PR | 两个半边 typecheck、构建、71 个测试、不变量、产物新鲜度、客户端 bundle 纯度、打包产物内容 |
 | `PR review` → `invariants` | PR，含 fork | 同一套不变量检查，外部贡献者拿到一样的反馈 |
 | `PR review` → `claude` | 本仓库的 PR，且配了 `ANTHROPIC_API_KEY` | 判断题：展示器纯度、卡片降级、声明是否属实、测试能否证伪 |
 | `Harness compatibility` | 每周、手动 | 对 `next` 与 `alpha` 两条 harness tag 的上游漂移 |

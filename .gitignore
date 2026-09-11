@@ -1,4 +1,14 @@
-lib/
+# Build output is committed on purpose.
+#
+# The official install command for this plugin is the git channel
+# (`dsh plugin --profile web add github:crosery/dsh-viewer`), and pnpm refuses to
+# run a git-hosted package's build scripts unless the user pre-approves it in
+# their profile's `allowBuilds`. Leaving `lib/` out of the repository means every
+# user must approve a build, and a user who does not gets
+# ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED instead of a plugin.
+#
+# So `lib/` ships in the repository and `scripts/check-dist.mjs` keeps it honest:
+# CI rebuilds and refuses a dist that disagrees with `src/`.
 node_modules/
 *.tsbuildinfo
 .DS_Store

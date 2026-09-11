@@ -44,10 +44,16 @@ PDF 与本地网页，实时渲染：
 ## 安装
 
 ```sh
-dsh plugin --profile web add @crosery/dsh-viewer
+dsh plugin --profile web add github:crosery/dsh-viewer
 ```
 
 然后把包名加进 profile `package.json` 的 `dsh.profile.bundles`，并**重启 profile**——bundle 成员变更不走热重载。
+
+仓库里直接提交了构建产物，所以这条命令不需要任何构建步骤，也不需要你在 profile 的 `allowBuilds` 里批准任何脚本。想要锁定版本安装的话，每次 release 也附带了同样的 tarball：
+
+```sh
+dsh plugin --profile web add https://github.com/Crosery/dsh-viewer/releases/latest/download/dsh-viewer.tgz
+```
 
 Office 渲染额外需要 LibreOffice（`PATH` 上的 `soffice`，或 macOS 的应用包）：
 
@@ -154,7 +160,7 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 ## 装到 profile
 
 ```sh
-dsh plugin --profile web add @crosery/dsh-viewer     # 或本地开发：link:
+dsh plugin --profile web add github:crosery/dsh-viewer     # 或本地开发：link:
 ```
 
 然后在 profile `package.json` 的 `dsh.profile.bundles` 里加上包名。**bundle 成员变更必须重启 profile**（`cordis.patch.yml` 的编辑才走热重载）。
@@ -165,8 +171,10 @@ dsh plugin --profile web add @crosery/dsh-viewer     # 或本地开发：link:
 
 ```sh
 npm run typecheck     # 两个 program 分开检查
-npm run build         # 两份 .d.ts + 两个 bundle
-npm test              # 66 个用例
+npm run build         # 两份 .d.ts + 两个 bundle（产物提交进仓库，改动后要一并提交）
+npm run check         # 仓库不变式（README 计数、locale 键、peer 范围、安装路径）
+npm run check:dist    # 提交的 lib/ 与重新构建逐字节一致
+npm test              # 71 个用例
 ```
 
 已在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet-5 路由，headless Chrome 驱动）：

@@ -37,7 +37,7 @@ Keep the branch rebased on `main` rather than merging `main` into it — the his
 
 | Check | Trigger | What it guards |
 | --- | --- | --- |
-| `CI` | push, PR | typecheck (both halves), build, 66 tests, invariants, client bundle purity, packed-tarball contents |
+| `CI` | push, PR | typecheck (both halves), build, 71 tests, invariants, dist freshness, client bundle purity, packed-tarball contents |
 | `PR review` → `invariants` | PR, forks included | the same invariant checker, so an external contributor gets the same feedback |
 | `PR review` → `claude` | PR from this repo, only when `ANTHROPIC_API_KEY` exists | judgement: purity of display projections, card degradation, claim accuracy, whether the tests could falsify anything |
 | `Harness compatibility` | weekly, manual | upstream drift against the `next` and `alpha` harness tags |

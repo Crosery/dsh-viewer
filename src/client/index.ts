@@ -18,8 +18,14 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // collaboration goes through those services — a value import here would fail the
 // client bundle-purity contract and, at runtime, require a specifier the
 // loader's module table cannot answer.
+//
+// The session service merge is deliberately NOT imported: `sessions` was
+// declared by `@deepseek-ai/dsh-client-runtime` up to harness 0.1.1 and by
+// `@deepseek-ai/dsh-api-session-controller` from 0.1.2, and the former stopped
+// publishing. Importing either one pins this plugin to a single train and
+// fails the other's typecheck, so the slice this card reads is declared
+// structurally below instead — the same contract, read the same way on both.
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
-import type {} from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
@@ -42,6 +48,41 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'tool.viewer': ViewerKey
   }
 }
+
+/**
+ * The client session-service slice this card reads, declared structurally.
+ *
+ * Two members, both stable across the trains this plugin supports: the service
+ * is named `sessions` and a binding exposes `session.readAttachment`. The
+ * result union is the carrier's own `RpcResult`/`RemoteResult` shape, which the
+ * harness renamed without changing its arms. Nothing here is nominally tied to
+ * a package name, so a train that moves this service to another package (0.1.2
+ * moved it out of `dsh-client-runtime`) breaks neither the typecheck nor the
+ * bundle.
+ */
+interface ViewerSessionFace {
+  /** Durable image bytes, or the carrier's failure. */
+  readAttachment(id: string): Promise<
+    | { ok: true; value: { attachment: { mediaType: string }; data: Uint8Array } }
+    | { ok: false; error: { code: string; message: string } }
+  >
+}
+
+/** The `sessions` service, as far as this plugin is concerned. */
+interface ViewerSessions {
+  binding(id: SessionId): { session: ViewerSessionFace } | undefined
+}
+
+/**
+ * Why the service is read by name instead of through the context's own merge:
+ * every harness train declares `ctx.sessions`, but each declares it from a
+ * different package (`dsh-client-runtime` up to 0.1.1, `dsh-api-session-controller`
+ * from 0.1.2) — and on the older train that declaration still reaches this
+ * program through another plugin's imports. Importing either one pins the build
+ * to a train; declaring the property here collides with the one already in the
+ * graph. Reading the service by name is what works on both, and the value is
+ * narrowed once to the slice this card actually calls.
+ */
 
 /**
  * Durable attachments resolved to browser URLs, once each.
@@ -75,10 +116,14 @@ class AttachmentUrls {
     const cached = this.pending.get(key)
     if (cached !== undefined) return cached
 
-    const session = this.ctx.sessions.binding(sessionId)?.session
+    // The cast is the narrowing step described above: `ctx.get` types the value
+    // as the ambient declaration's `ISessions`, and this plugin reads exactly
+    // two members of it.
+    const sessions = this.ctx.get('sessions') as unknown as ViewerSessions | undefined
+    const session = sessions?.binding(sessionId)?.session
     if (session === undefined) return Promise.reject(new Error(`dsh-viewer: unknown session "${sessionId}"`))
 
-    const request = session.readAttachment(attachmentId as never)
+    const request = session.readAttachment(attachmentId)
       .then((result) => {
         if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
         if (this.disposed) throw new Error('dsh-viewer: the plugin unloaded before the image arrived')

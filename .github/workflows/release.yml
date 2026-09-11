@@ -38,7 +38,9 @@ jobs:
         run: |
           npm run typecheck
           npm test
+          npm run check
           npm run build
+          npm run check:dist
 
       - name: Refuse a tag that disagrees with package.json
         run: |

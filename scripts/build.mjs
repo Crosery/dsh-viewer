@@ -11,11 +11,22 @@
 
 import { build } from 'esbuild'
 import { execFileSync } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { join, resolve } from 'node:path'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const tscBin = fileURLToPath(new URL('../node_modules/typescript/bin/tsc', import.meta.url))
+
+/**
+ * Output directory, overridable so `scripts/check-dist.mjs` can build beside the
+ * committed dist and compare the two without disturbing a working tree.
+ */
+const outIndex = process.argv.indexOf('--outdir')
+const outDir = outIndex === -1 ? join(root, 'lib') : resolve(process.argv[outIndex + 1])
+mkdirSync(outDir, { recursive: true })
+
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const id = manifest.name
 
@@ -60,13 +71,17 @@ const shared = {
 // that emitted only the bundles would publish a package with no types at all.
 // A type error here fails the build rather than shipping a stale .d.ts.
 for (const config of TSCONFIGS) {
-  execFileSync(process.execPath, [tscBin, '-p', config], { cwd: root, stdio: 'inherit' })
+  const args = [tscBin, '-p', config]
+  // `--outDir` on the command line overrides the config's, which is what keeps
+  // a dist check from writing over the committed declarations.
+  if (outDir !== join(root, 'lib')) args.push('--outDir', join(outDir, 'types'))
+  execFileSync(process.execPath, args, { cwd: root, stdio: 'inherit' })
 }
 
 await build({
   ...shared,
   entryPoints: ['src/index.ts'],
-  outfile: 'lib/index.js',
+  outfile: join(outDir, 'index.js'),
   format: 'esm',
   platform: 'node',
   external: NODE_EXTERNAL,
@@ -75,7 +90,7 @@ await build({
 await build({
   ...shared,
   entryPoints: ['src/client/index.ts'],
-  outfile: 'lib/client.js',
+  outfile: join(outDir, 'client.js'),
   format: 'cjs',
   platform: 'browser',
   external: MODULE_TABLE,
@@ -87,4 +102,4 @@ await build({
   footer: { js: 'return module.exports; } });' },
 })
 
-console.log(`built ${id}: lib/index.js + lib/client.js`)
+console.log(`built ${id}: ${outDir}/index.js + ${outDir}/client.js`)
