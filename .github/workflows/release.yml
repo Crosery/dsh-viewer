@@ -21,6 +21,12 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # The token lives here, not on the publish step below: GitHub evaluates a
+    # step's `if` before applying that step's own `env`, so a guard reading a
+    # same-step value sees nothing, evaluates truthy, and runs `npm publish`
+    # with no credentials. Job-level env is what the guard can actually see.
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,9 +78,8 @@ jobs:
             || gh release create "$TAG" dsh-viewer.tgz --generate-notes --title "$TAG"
 
       # Only runs when a publish token is configured; the release itself never
-      # depends on npm being reachable.
+      # depends on npm being reachable. The token is the job-level env above —
+      # that is the whole point of it being there.
       - name: Publish to npm
         if: ${{ env.NODE_AUTH_TOKEN != '' }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
