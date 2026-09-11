@@ -11,9 +11,11 @@
 | `0.1.3-alpha.2` | yes | same |
 | `0.1.5-rc.2` | yes | same, on the train `next` currently resolves to |
 
+Verified trains and the evidence for each are recorded in [acceptance.md](acceptance.md).
+
 The peer range is `>=0.1.0-rc.1 <0.1.1-0 || >=0.1.1-rc.0 <0.1.2-0 || >=0.1.2-rc.0 <0.1.3-0 || >=0.1.3-rc.0 <0.1.4-0 || >=0.1.5-rc.0 <0.1.6-0`. It widens on evidence, not optimism: the `0.1.4` tuple is absent because nothing has been published on it at all.
 
-A train is only installable when every harness package it needs is published on it, and two of them are not. `0.1.5-alpha.2` publishes `@deepseek-ai/dsh-tools` requiring `@deepseek-ai/dsh-user-approval@^0.1.5-alpha.2`, which that tag never shipped; `0.1.2-alpha.5` has the same shape — its `dsh-tools` wants `dsh-user-approval@^0.1.2-alpha.5` while only `0.1.2-rc.1` exists, and that one in turn wants `dsh-agent@^0.1.2-rc.1`. Neither set resolves at all. That is upstream's state, not this plugin's claim; the scheduled job keeps reporting it.
+A train is only installable when every harness package it needs is published on it, and several are not. The pattern is the same each time: a tag ships `@deepseek-ai/dsh-tools` requiring a `@deepseek-ai/dsh-user-approval` that the tag never published, and the nearest release that does exist requires a third package that the tag also never published. `0.1.2-alpha.5`, `0.1.5-alpha.1`, `0.1.5-alpha.2` and `0.1.5-rc.1` all fail that way, and each was confirmed with no trace of this plugin in the dependency graph. That is upstream's state, not this plugin's claim; the scheduled job keeps reporting it.
 
 ## The 0.1.2 API rename
 
