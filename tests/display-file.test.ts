@@ -1,14 +1,14 @@
 /**
  * The `display_file` execution path against a context double: what a nested
- * call does with model context.
+ * call does with model context, and which converter a document goes through.
  *
  * The double is deliberately thin — `tools.register` hands back the definition
  * so `execute` can be driven directly, and `fs` serves one real file from disk —
  * so each case pins one decision the tool makes rather than the harness around it.
  */
 
-import { deepEqual, equal, ok } from 'node:assert/strict'
-import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
+import { deepEqual, equal, match, ok } from 'node:assert/strict'
+import { mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -27,7 +27,7 @@ interface RegisteredTool {
 
 /**
  * A context double with one file on "disk", an attachment store that accepts
- * PNGs, and a vision-capable model route.
+ * PNGs, a vision-capable model route, and an optional `officeToPdf`.
  */
 async function harness(file: { name: string; bytes: Uint8Array }, services: Record<string, unknown> = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-viewer-display-'))
@@ -103,4 +103,69 @@ test('a top-level call behaves exactly as before and defers nothing either', asy
   equal(value.inContext, true)
   deepEqual(deferred, [])
   ok(value.assetUrl?.startsWith(`${ASSET_ROUTE}?`))
+})
+
+test('a DOCX goes through the harness converter when one is composed, and is cached', async () => {
+  const pdf = new TextEncoder().encode('%PDF-1.7\n% converted by the fake\n%%EOF\n')
+  const requests: { extension: string; version: string; key: string; read: Uint8Array }[] = []
+  const officeToPdf = {
+    generation: 'gen-1',
+    convert: async (request: {
+      extension: string
+      priority: string
+      source: { key: string; version: string; bytes?: number; read(signal: AbortSignal, max: number): Promise<{ bytes: Uint8Array; version: string }> }
+    }) => {
+      const read = await request.source.read(new AbortController().signal, 1 << 20)
+      requests.push({ extension: request.extension, version: request.source.version, key: request.source.key, read: read.bytes })
+      return { pdf }
+    },
+  }
+  const docx = new TextEncoder().encode('PK not really a docx')
+  const h = await harness({ name: 'report.docx', bytes: docx }, { officeToPdf })
+  const cacheDir = join(h.dir, 'cache')
+  applyDisplayTool(h.ctx as never, { feedModel: () => true, secret: () => SECRET, cacheDir })
+
+  const first = await h.tool().execute({ file_path: h.path }, execution(false).exec)
+  equal(first.kind, 'document')
+  equal(first.mediaType, 'application/pdf', 'the card is served the converted artifact')
+  equal(first.unavailable, undefined)
+  ok(first.assetUrl?.startsWith(`${ASSET_ROUTE}?`))
+  equal(requests.length, 1)
+  equal(requests[0]?.extension, 'docx')
+  match(requests[0]?.key ?? '', /dsh-viewer/)
+  deepEqual([...requests[0]!.read], [...docx], 'the provider read the source through the Host filesystem')
+
+  const artifacts = (await readdir(cacheDir)).filter(name => name.endsWith('.pdf'))
+  equal(artifacts.length, 1, 'exactly one artifact, and no partial file left behind')
+  deepEqual([...await readFile(join(cacheDir, artifacts[0]!))], [...pdf])
+  deepEqual((await readdir(cacheDir)).filter(name => name.includes('.partial')), [])
+
+  const second = await h.tool().execute({ file_path: h.path }, execution(false).exec)
+  equal(second.assetUrl, first.assetUrl, 'the same artifact is signed again')
+  equal(requests.length, 1, 'and the second display is a cache hit')
+})
+
+test('a format the harness converter does not take never reaches it', async () => {
+  let called = false
+  const officeToPdf = { convert: async () => { called = true; return { pdf: new Uint8Array() } } }
+  const h = await harness({ name: 'notes.odt', bytes: new TextEncoder().encode('odt') }, { officeToPdf })
+  applyDisplayTool(h.ctx as never, { feedModel: () => true, secret: () => SECRET, cacheDir: join(h.dir, 'cache') })
+  // Whatever LibreOffice makes of these bytes, the bundled converter is not asked.
+  await h.tool().execute({ file_path: h.path }, execution(false).exec).catch(() => undefined)
+  equal(called, false)
+})
+
+test('a failing harness converter degrades to a card that says why, not a failed call', async () => {
+  const officeToPdf = { convert: async () => { throw new Error('the Office kit is unavailable') } }
+  const h = await harness({ name: 'deck.pptx', bytes: new TextEncoder().encode('pptx') }, { officeToPdf })
+  applyDisplayTool(h.ctx as never, { feedModel: () => true, secret: () => SECRET, cacheDir: join(h.dir, 'cache') })
+  const value = await h.tool().execute({ file_path: h.path }, execution(false).exec)
+  equal(value.kind, 'document')
+  if (value.assetUrl === undefined) {
+    // No LibreOffice to fall back to (or it could not read the bytes either):
+    // the card carries the bundled converter's reason, the more useful one.
+    match(value.unavailable ?? '', /harness converter failed \(the Office kit is unavailable\)/)
+  } else {
+    equal(value.unavailable, undefined, 'a local LibreOffice rescued the preview')
+  }
 })

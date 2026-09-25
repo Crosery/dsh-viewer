@@ -23,13 +23,15 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolExecution } from '@deepseek-ai/dsh-tools'
-import type { FsTarget } from '@deepseek-ai/dsh-fs'
+import type { FsInfo, FsTarget } from '@deepseek-ai/dsh-fs'
 import {
   DISPLAY_TOOL, classifyPath, formatBytes, modelImageMediaTypeForPath,
   type DisplayValue, type ModelImage, type ModelImageMediaType,
 } from './contract.ts'
 import { assetUrlFor } from './asset-token.ts'
-import { CONVERTED_MEDIA_TYPE, convertDocument } from './convert.ts'
+import {
+  CONVERTED_MEDIA_TYPE, convertDocument, convertWithOfficeToPdf, officeExtensionOf, officeToPdfOf,
+} from './convert.ts'
 import { resolveDisplayTarget } from './read-target.ts'
 
 /** Live settings and key material {@link applyDisplayTool} reads per call. */
@@ -184,6 +186,56 @@ async function commitImage(
 }
 
 /**
+ * Convert one document into the PDF the card shows.
+ *
+ * The harness's own converter is preferred where it exists and accepts the
+ * format: it ships a bundled LibreOffice kit, so it works on a desktop install
+ * with no LibreOffice at all. A failure there is not final — a locally
+ * installed LibreOffice may still read the file — but when neither converter
+ * can, the card shows why the bundled one refused, which is the more useful of
+ * the two reasons.
+ * @param ctx - the plugin context, for the optional `officeToPdf` and the `fs` reads.
+ * @param exec - the running execution, for cancellation.
+ * @param target - the resolved document.
+ * @param info - its stat result.
+ * @param processPath - the Host's own path of the document.
+ * @param cacheDir - directory owning converted artifacts.
+ * @returns the PDF artifact's absolute path.
+ */
+async function convertForDisplay(
+  ctx: Context,
+  exec: ToolExecution,
+  target: FsTarget,
+  info: FsInfo,
+  processPath: string,
+  cacheDir: string,
+): Promise<string> {
+  const office = officeToPdfOf((ctx as unknown as { get(name: string): unknown }).get('officeToPdf'))
+  let bundledFailure: unknown
+  if (office !== undefined && officeExtensionOf(processPath) !== undefined) {
+    try {
+      return await convertWithOfficeToPdf(office, {
+        path: processPath,
+        version: String(info.version),
+        ...info.size === undefined ? {} : { bytes: info.size },
+        read: (signal, maxBytes) => ctx.fs.readBytes(target, signal, maxBytes),
+      }, cacheDir, exec.signal)
+    } catch (error: unknown) {
+      if (exec.signal?.aborted === true) throw error
+      bundledFailure = error
+      console.warn(`[dsh-viewer] the harness converter could not convert ${basename(processPath)}; trying LibreOffice`, error)
+    }
+  }
+  try {
+    return await convertDocument(processPath, cacheDir, exec.signal)
+  } catch (error: unknown) {
+    if (bundledFailure === undefined) throw error
+    const reason = bundledFailure instanceof Error ? bundledFailure.message : String(bundledFailure)
+    throw new Error(`cannot preview "${basename(processPath)}": the harness converter failed (${reason})`, { cause: bundledFailure })
+  }
+}
+
+/**
  * Register `display_file` into the given context.
  *
  * The composing plugin owns the service gates: `src/index.ts` calls this inside
@@ -258,7 +310,7 @@ export function applyDisplayTool(ctx: Context, options: DisplayToolOptions): () 
           // A document is signed at its CONVERTED artifact, never at the source:
           // the route serves bytes verbatim, and no browser renders a .docx.
           if (spec.kind === 'document') {
-            assetUrl = assetUrlFor(secret, await convertDocument(processPath, options.cacheDir, exec.signal))
+            assetUrl = assetUrlFor(secret, await convertForDisplay(ctx, exec, target, info, processPath, options.cacheDir))
             servedType = CONVERTED_MEDIA_TYPE
           } else {
             assetUrl = assetUrlFor(secret, processPath)
