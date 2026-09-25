@@ -21,14 +21,14 @@
 Not supported, on evidence:
 
 - **`0.0.1-rc.x`.** The plugin system exists there (0.0.1-rc.5 already has client modules and profile bundles), but `@deepseek-ai/dsh-client-ui-renderer`, which the browser half compiles against and injects, was first published at `0.1.0-rc.8`; 0.0.1-rc.1 and rc.2 also lack `@deepseek-ai/dsh-home-paths`. The peer ranges refuse all three.
-- **`0.1.0-rc.2` – `0.1.0-rc.7`** predate the same renderer package. The peer ranges start at `0.1.0-rc.0`, so these are admitted but not verified; nothing about them can be built.
+- **`0.1.0-rc.2` – `0.1.0-rc.7`** predate the same renderer package, so nothing about them can be built. The 0.1.0 comparator starts at `0.1.0-rc.8`, and the ranges refuse them.
 - **`0.1.4`** was never published, and the ranges have no comparator for it.
 - **`0.1.8` and later** are admitted only after a sweep has verified them. Until then the ranges refuse them, and dsh ≥0.1.7 enforces that (next section).
 
 The peer range, identical for every `@deepseek-ai/dsh-*` peer:
 
 ```text
->=0.1.0-rc.0 <0.1.1-0 || >=0.1.1-rc.0 <0.1.2-0 || >=0.1.2-alpha.0 <0.1.3-0 || >=0.1.3-alpha.0 <0.1.4-0 || >=0.1.5-alpha.0 <0.1.6-0 || >=0.1.6-alpha.0 <0.1.7-0 || >=0.1.7-alpha.0 <0.1.8-0
+>=0.1.0-rc.8 <0.1.1-0 || >=0.1.1-rc.0 <0.1.2-0 || >=0.1.2-alpha.0 <0.1.3-0 || >=0.1.3-alpha.0 <0.1.4-0 || >=0.1.5-alpha.0 <0.1.6-0 || >=0.1.6-alpha.0 <0.1.7-0 || >=0.1.7-alpha.0 <0.1.8-0
 ```
 
 `npm run check` asserts that this range admits every verified version above under both semver rules and refuses every build outside the support.
@@ -84,7 +84,7 @@ The broad range does admit those prereleases under dsh's own `includePrerelease`
 | `floor` | `0.1.1-rc.2` | required | — | gate |
 | `desktop` | the version both desktop update feeds announce, required to agree and to exist as `@deepseek-ai/dsh` on npm | runs, not required | daily | gate |
 | `latest` / `next` / `alpha` | npm dist-tags of `@deepseek-ai/dsh` | — | daily | — |
-| `sweep` | every published `@deepseek-ai/dsh` version from the lowest the peer ranges admit, read from npm at run time | — | weekly, with smoke on the floor, the newest version of each tuple and every dist-tag | gate, with the same smoke |
+| `sweep` | every published `@deepseek-ai/dsh` version from the lowest the peer ranges admit (`0.1.0-rc.8`), read from npm at run time | — | weekly, with smoke on the floor, the newest version of each tuple and every dist-tag | gate, with the same smoke |
 | `desktop-bytes` | the macOS zip from the `mac-arm64` feed: sha512-verified, cross-checked against its `desktop-runtime.json`, smoked with the app's own Electron Node and bundled pnpm | — | daily and weekly | gate |
 
 Details that matter when reading a run:

@@ -12,7 +12,7 @@ What was verified end to end, on which harness versions, and how. Every number b
 | --- | --- |
 | `0.1.0-rc.8`, `0.1.1-rc.2`, `0.1.2-rc.1`, `0.1.3-alpha.2`, `0.1.5-rc.3`, `0.1.6-alpha.2`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2` | supported: host tsc, client tsc and all tests pass |
 | `0.1.1-rc.1`, `0.1.2-alpha.2` – `alpha.5`, `0.1.5-alpha.1`, `0.1.5-alpha.2`, `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.6-alpha.1`, `0.1.7-alpha.1` | supported: the same, installed through that version's own `@deepseek-ai/dsh`, because its caret peers make npm's peer graph stop with `ERESOLVE` |
-| `0.1.0-rc.2`, `0.1.0-rc.3`, `0.1.0-rc.6`, `0.1.0-rc.7` | predates: `dsh-client-ui-renderer` is first published at `0.1.0-rc.8` |
+| `0.1.0-rc.2`, `0.1.0-rc.3`, `0.1.0-rc.6`, `0.1.0-rc.7` | predates: `dsh-client-ui-renderer` is first published at `0.1.0-rc.8`; the peer ranges refuse them |
 | `0.0.1-rc.1`, `0.0.1-rc.2`, `0.0.1-rc.5` | predates: `dsh-client-ui-renderer` (and on rc.1/rc.2 `dsh-home-paths`) not published yet; the peer ranges refuse them |
 
 Every supported row ran all 123 tests, 123/123, in the final sweep on 2026-09-26. The exit status was 0.

@@ -27,17 +27,21 @@ const PUBLISHED = [
   '0.1.6-alpha.1', '0.1.6-alpha.2',
   '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2',
 ]
+/** The first train that publishes `dsh-client-ui-renderer`, which the browser half injects. */
+const SUPPORTED = PUBLISHED.slice(PUBLISHED.indexOf('0.1.0-rc.8'))
 
 describe('peer admission', () => {
-  it('admits every published train from 0.1.0 up under both semver rules', () => {
-    for (const version of PUBLISHED.filter((v) => !v.startsWith('0.0.'))) {
+  it('admits every published train from 0.1.0-rc.8 up under both semver rules', () => {
+    for (const version of SUPPORTED) {
       assert.deepEqual(refusals(version, peers), [], version)
     }
   })
 
-  it('refuses 0.0.1 and the next, unverified tuple', () => {
-    for (const version of ['0.0.1-rc.5', '0.1.8-alpha.1', '0.1.8', '0.2.0-rc.1']) {
-      assert.equal(refusals(version, peers).length, peers.length, version)
+  it('refuses every train that predates the renderer package, and the next, unverified tuple', () => {
+    for (const version of ['0.0.1-rc.5', '0.1.0-rc.2', '0.1.0-rc.3', '0.1.0-rc.6', '0.1.0-rc.7', '0.1.8-alpha.1', '0.1.8', '0.2.0-rc.1']) {
+      const refused = refusals(version, peers)
+      assert.equal(refused.length, peers.length, version)
+      assert.ok(refused.every((r: { runtime: boolean; installer: boolean }) => !r.runtime && !r.installer), `${version} must fail both rules`)
     }
   })
 
@@ -51,12 +55,12 @@ describe('sweep plan', () => {
   const facts = { published: PUBLISHED, sweepFrom: sweepStart(peers), pinned: '0.1.7-rc.2', resolved: { desktop: '0.1.7-rc.2', latest: '0.1.5-rc.3', next: '0.1.7-rc.2', alpha: '0.1.7-alpha.2' } }
 
   it('starts where the peer ranges start admitting', () => {
-    assert.equal(sweepStart(peers), '0.1.0-rc.0')
+    assert.equal(sweepStart(peers), '0.1.0-rc.8')
   })
 
   it('covers every published version from there, and a newly published one without a code change', () => {
     const rows = planCells(['sweep'], { ...facts, published: [...PUBLISHED, '0.1.8-alpha.1'] })
-    assert.deepEqual(rows.map((r: { cell: string }) => r.cell), [...PUBLISHED.filter((v) => !v.startsWith('0.0.')), '0.1.8-alpha.1'])
+    assert.deepEqual(rows.map((r: { cell: string }) => r.cell), [...SUPPORTED, '0.1.8-alpha.1'])
   })
 
   it('smokes the floor, each tuple head and every dist-tag or desktop version', () => {

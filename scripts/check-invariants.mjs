@@ -86,12 +86,18 @@ const VERIFIED_TRAINS = [
   '0.1.6-alpha.1', '0.1.6-alpha.2',
   '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2',
 ]
-// Admitted by the range but not verifiable: 0.1.0-rc.2 – rc.7 predate
-// `@deepseek-ai/dsh-client-ui-renderer`, which the browser half compiles
-// against and injects (first published at 0.1.0-rc.8). Neither asserted in
-// nor out; docs/harness-compatibility.md says so.
-/** Builds that must stay outside: 0.0.1 predates the renderer package too; 0.1.4 was never published; 0.1.8+ waits for a sweep. */
-const OUTSIDE = ['0.0.1-rc.1', '0.0.1-rc.2', '0.0.1-rc.5', '0.1.4-rc.0', '0.1.8-alpha.0', '0.1.8-rc.0', '0.1.8', '0.2.0']
+/**
+ * Builds that must stay outside, under both rules: 0.0.1 and 0.1.0-rc.2 – rc.7
+ * predate `@deepseek-ai/dsh-client-ui-renderer`, which the browser half
+ * compiles against and injects (first published at 0.1.0-rc.8), so the
+ * plugin cannot be built there at all; 0.1.4 was never published; 0.1.8+
+ * waits for a sweep.
+ */
+const OUTSIDE = [
+  '0.0.1-rc.1', '0.0.1-rc.2', '0.0.1-rc.5',
+  '0.1.0-rc.2', '0.1.0-rc.3', '0.1.0-rc.4', '0.1.0-rc.5', '0.1.0-rc.6', '0.1.0-rc.7',
+  '0.1.4-rc.0', '0.1.8-alpha.0', '0.1.8-rc.0', '0.1.8', '0.2.0',
+]
 const rules = [['default semver (npm, pnpm)', {}], ['includePrerelease (dsh ≥0.1.7 install and boot)', { includePrerelease: true }]]
 for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
   if (name !== '@deepseek-ai/dsh' && !name.startsWith('@deepseek-ai/dsh-')) continue
@@ -106,7 +112,9 @@ for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
     }
   }
   for (const train of OUTSIDE) {
-    if (semver.satisfies(train, range, { includePrerelease: true })) fail('peerDependencies', `${name} admits ${train}, which is outside the documented support`)
+    for (const [rule, options] of rules) {
+      if (semver.satisfies(train, range, options)) fail('peerDependencies', `${name} admits ${train} under ${rule}, which is outside the documented support`)
+    }
   }
   if (pinned !== undefined && !semver.valid(pinned)) fail('devDependencies', `${name} must pin one exact, tested version, not \`${pinned}\``)
 }
@@ -115,7 +123,7 @@ for (const file of ['docs/harness-compatibility.md', 'docs/harness-compatibility
   const unlisted = VERIFIED_TRAINS.filter((train) => !text.includes(`\`${train}\``))
   if (unlisted.length > 0) fail(file, `does not list verified trains: ${unlisted.join(', ')}`)
 }
-notes.push(`peer ranges: ${VERIFIED_TRAINS.length} verified trains admitted under both semver rules; ${OUTSIDE.length} outside builds refused`)
+notes.push(`peer ranges: ${VERIFIED_TRAINS.length} verified trains admitted and ${OUTSIDE.length} outside builds refused, under both semver rules`)
 
 // 5. Storefronts read this file; a path that does not resolve is a 404 in the
 //    market listing, which nobody looking at this repo would ever notice.
