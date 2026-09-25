@@ -17,16 +17,19 @@
  * plugin's `apply`, and cordis answers a failed apply by unloading the whole
  * client half — so one bad key must never be able to take the rest with it.
  *
- * The card's only Host dependency is the durable attachment channel, reached
- * through `ctx.sessions`. Everything else (video, audio, PDF, HTML) arrives over
- * the Host's signed asset route as an ordinary same-origin URL.
+ * The card's only Host dependencies are durable image bytes — through the
+ * chat's own loader from 0.1.7, through `ctx.sessions` before — and everything
+ * else (video, audio, PDF, HTML) arrives over the Host's signed asset route as an
+ * ordinary same-origin URL.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis';
 import { type ViewerKey } from './locales.ts';
 export type { CardState } from './card-model.ts';
 export { cardModel, argumentPathOf, contentImageOf } from './card-model.ts';
-export type { ViewerCardInjected } from './ViewerCard.tsx';
+export type { ViewerCardInjected, ViewerCardOwner } from './ViewerCard.tsx';
+export { imageLoaderFor, type OwnerImageLoader, type ViewerSources } from './sources.ts';
 export type { ViewerKey } from './locales.ts';
+export { isDesktopShell, mediaSourceFor } from './host.ts';
 export { READ_IMAGE_PRIORITY, TURN_TAIL_SLOT, VIEWER_NS, contribute, turnTailJoinable } from './registration.ts';
 declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface LocaleNamespaceMap {
@@ -35,9 +38,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     }
 }
 /**
- * Required services. `sessions` is required rather than optional because the
- * attachment channel is the card's fallback byte source; `locale` and `slots`
- * are the registration surface.
+ * Required services: the registration surface and the copy, nothing else.
+ *
+ * `sessions` is read by name when an image actually needs its bytes, not
+ * required: from 0.1.7 the chat supplies its own image loader and the plugin's
+ * reader is only the fallback, and an entry that never activates is a hard
+ * boot failure rather than a graceful skip.
  */
 export declare const inject: string[];
 export declare const name = "@crosery/dsh-viewer";

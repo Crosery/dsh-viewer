@@ -1,5 +1,6 @@
 /**
- * How the browser half joins the slot registry. The slot cases drive the harness's REAL slot core — the one
+ * How the browser half joins the slot registry, and the pure decisions its
+ * components make. The slot cases drive the harness's REAL slot core — the one
  * the pinned train publishes, and the one each train in the sweep publishes —
  * so a change in how a second entry for a key is treated fails here, not in a
  * user's browser.
@@ -9,7 +10,9 @@ import { deepEqual, equal, ok, throws } from 'node:assert/strict'
 import { test } from 'node:test'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 import { READ_IMAGE_PRIORITY, VIEWER_NS, contribute, turnTailJoinable } from '../src/client/registration.ts'
-import { DISPLAY_TOOL, READ_IMAGE_TOOL } from '../src/contract.ts'
+import { isDesktopShell, mediaSourceFor } from '../src/client/host.ts'
+import { imageLoaderFor } from '../src/client/sources.ts'
+import { DISPLAY_TOOL, READ_IMAGE_TOOL, type ModelImage } from '../src/contract.ts'
 
 /** A fresh core with the tool-view slot declared the way `dsh-client-ui-tool` declares it. */
 function coreWithToolView(): InstanceType<typeof SlotCore> {
@@ -85,4 +88,40 @@ test('the turn tail is joined only in its list form', () => {
   equal(turnTailJoinable({ kind: 'list' }), true, '0.1.6+')
   equal(turnTailJoinable({ kind: 'chain' }), false, 'up to 0.1.5: one winner per turn, the delivery cards would lose')
   equal(turnTailJoinable(undefined), true, 'a registry that cannot say is trusted')
+})
+
+test('the desktop window is recognised by capability, not by user agent', () => {
+  equal(isDesktopShell({ location: { protocol: 'dsh-app:' } }), true)
+  equal(isDesktopShell({ __DSH_HOST_PATHS__: { pathFor: () => '' }, location: { protocol: 'http:' } }), true)
+  equal(isDesktopShell({ location: { protocol: 'http:' } }), false)
+  equal(isDesktopShell({ location: { protocol: 'https:' } }), false)
+  equal(isDesktopShell({}), false)
+})
+
+const IMAGE: ModelImage = { attachmentId: 'att-9', mediaType: 'image/png', bytes: 10, width: 2, height: 3, name: 'a.png' }
+
+test('the chat’s own image loader is preferred where the owner supplies one', async () => {
+  const seen: unknown[] = []
+  const owner = ((attachment: unknown) => { seen.push(attachment); return Promise.resolve('blob:owner') }) as (attachment: never) => Promise<string>
+  const fallback = (): Promise<string> => Promise.reject(new Error('must not be used'))
+  equal(await imageLoaderFor(owner, fallback)(IMAGE), 'blob:owner')
+  deepEqual(seen, [IMAGE], 'the whole reference is handed over, not just the id')
+})
+
+test('without an owner loader the plugin reads the attachment itself', async () => {
+  const ids: string[] = []
+  equal(await imageLoaderFor(undefined, (id) => { ids.push(id); return Promise.resolve('blob:plugin') })(IMAGE), 'blob:plugin')
+  deepEqual(ids, ['att-9'])
+})
+
+test('desktop media loads from the Host loopback base so its first load is seekable', () => {
+  const asset = '/crosery/dsh-viewer/asset?p=abc&s=def'
+  const desktop = { location: { protocol: 'dsh-app:' }, __DSH_TRANSPORT__: { streamBaseUrl: 'http://127.0.0.1:19387' } }
+  equal(mediaSourceFor(asset, desktop), 'http://127.0.0.1:19387/crosery/dsh-viewer/asset?p=abc&s=def')
+  equal(mediaSourceFor(asset, { location: { protocol: 'http:' }, __DSH_TRANSPORT__: { streamBaseUrl: 'http://127.0.0.1:3080' } }), asset, 'plain web keeps the same-origin path')
+  equal(mediaSourceFor(asset, { location: { protocol: 'dsh-app:' } }), asset, 'no transport facts')
+  equal(mediaSourceFor(asset, { location: { protocol: 'dsh-app:' }, __DSH_TRANSPORT__: { streamBaseUrl: 'http://evil.example:80' } }), asset, 'never off loopback')
+  equal(mediaSourceFor(asset, { location: { protocol: 'dsh-app:' }, __DSH_TRANSPORT__: { streamBaseUrl: 'javascript:alert(1)' } }), asset)
+  equal(mediaSourceFor(asset, { location: { protocol: 'dsh-app:' }, __DSH_TRANSPORT__: { streamBaseUrl: 'not a url' } }), asset)
+  equal(mediaSourceFor('https://elsewhere/x.mp4', desktop), 'https://elsewhere/x.mp4', 'only same-origin paths are rebased')
 })

@@ -82,6 +82,19 @@ const SHEET = `
   text-decoration: none;
 }
 .dshview-link:hover { text-decoration: underline; }
+.dshview-action {
+  align-self: flex-start; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px;
+  border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px;
+  background: transparent; color: var(--dsw-alias-brand-primary);
+}
+.dshview-action:hover { background: var(--dsw-alias-bg-layer-2); }
+.dshview-head:focus-visible,
+.dshview-imageButton:focus-visible,
+.dshview-action:focus-visible,
+.dshview-retry:focus-visible,
+.dshview-lightboxClose:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px;
+}
 
 .dshview-lightbox {
   position: fixed; inset: 0; z-index: 2000; display: flex;
