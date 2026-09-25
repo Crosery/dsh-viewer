@@ -4,17 +4,28 @@
 
 ## Cut a release
 
-1. Bump `version` in `package.json` and update the counts in both READMEs if anything changed.
-2. Merge to `main` with CI green.
-3. Tag and push:
+1. Bump `version` in `package.json` (and `package-lock.json`, `npm install --package-lock-only`), and update the counts in both READMEs if anything changed.
+2. If the harness moved, run `node scripts/sweep-trains.mjs` and make `VERIFIED_TRAINS` in `scripts/check-invariants.mjs`, the peer ranges and [harness-compatibility.md](harness-compatibility.md) say the same thing. `npm run check` refuses a disagreement.
+3. Merge to `main` with CI green.
+4. Tag and push:
 
 ```sh
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-`.github/workflows/release.yml` takes it from there: it typechecks, tests, checks the repo invariants that the committed `lib/` matches a fresh build, **refuses a tag that disagrees with `package.json`**, packs, and attaches the tarball. Publishing to npm happens only when an `NPM_TOKEN` secret exists — the release itself never depends on npm being reachable.
+`.github/workflows/release.yml` takes it from there, in two jobs.
 
-The built halves are **committed**, so the tag itself is installable by the official git command. `npm run build` writes what `src/` currently means; `npm run check:dist` is what refuses a commit whose `lib/` disagrees with it, and CI runs both.
+**`gate`** calls `harness-compat.yml` on the tag's own tree. Nothing is attached until every part passes:
+
+- the four stages (types, tests, peer admission, boot smoke) on the `pinned` train, the `0.1.1-rc.2` floor, and the version the desktop app ships that day;
+- the boot smoke on the desktop zip itself (`desktop-bytes`, macOS);
+- types, tests and peer admission on every published harness version the sweep finds, from the lowest the peer ranges admit. A version published incomplete upstream is neutral and does not block.
+
+One consequence: a new harness tuple published after the last sweep fails the gate's `admission` stage until the ranges admit it. That is intended. Verify it and widen the ranges ([harness-compatibility.md](harness-compatibility.md)), or re-run the release once that is done.
+
+**`release`** repeats typecheck, tests, invariants, build and the `lib/` freshness check. It **refuses a tag that disagrees with `package.json`**, then packs and attaches the tarball. A new release's notes start with a table of the exact harness versions the gate smoked. npm publishing is a separate opt-in that only runs when the repository variable `NPM_PUBLISH` is `true` (see [npm](#npm)). A release never depends on npm being reachable.
+
+The built halves are **committed**, so the tag itself is installable by the official git command. `npm run build` writes what `src/` currently means; `npm run check:dist` refuses a commit whose `lib/` disagrees with it, and CI runs both.
 
 ## Why the asset name carries no version
 

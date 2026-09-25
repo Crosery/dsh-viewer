@@ -55,7 +55,9 @@ dsh plugin --profile web add github:crosery/dsh-viewer
 dsh plugin --profile web add https://github.com/Crosery/dsh-viewer/releases/latest/download/dsh-viewer.tgz
 ```
 
-桌面版里 `dsh plugin` 命令行管不了桌面 profile：打开**插件 → 添加插件**，粘贴上面那条 release 压缩包地址即可。在那里升级已装插件需要重启应用。
+**桌面版**：打开**插件 → 添加插件**，粘贴上面那条 release 压缩包地址。`dsh` 命令行拒绝操作桌面 profile（`profile "desktop" is managed exclusively by the Electron application`），所以这是唯一的入口。在那里升级已装插件需要重启应用。
+
+**harness 0.1.7（包括桌面版）需要 0.2.0 或更新的版本。** 从 0.1.7 起 harness 会自己检查插件的 peer 范围，而 v0.1.1 的范围止于 0.1.6 以下：安装会被拒绝，已经装好的副本在启动时被悄无声息地跳过——对话照常，但什么文件都不会显示。
 
 Office 渲染需要一个转换器。从 harness 0.1.6-alpha.2 起（包括桌面版），harness 自带的内置转换器就能处理 `doc` `docx` `xls` `xlsx` `ppt` `pptx`，什么都不用装。`rtf` 和三种 OpenDocument 格式，以及更早版本上的所有文档格式，仍需要 LibreOffice（`PATH` 上的 `soffice`，或 macOS 的应用包）：
 
@@ -183,10 +185,10 @@ npm run typecheck     # 两个 program 分开检查
 npm run build         # 两份 .d.ts + 两个 bundle（产物提交进仓库，改动后要一并提交）
 npm run check         # 仓库不变式（README 计数、locale 键、peer 范围、安装路径）
 npm run check:dist    # 提交的 lib/ 与重新构建逐字节一致
-npm test              # 71 个用例
+npm test              # 121 个用例
 ```
 
-已在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet-5 路由，headless Chrome 驱动）：
+v0.1.1 时在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet-5 路由，headless Chrome 驱动；0.2.0 在 0.1.7-rc.2 的 Web 与桌面版上的实测见 [docs/acceptance.zh.md](docs/acceptance.zh.md)）：
 
 - **七种卡片全部渲染**：图片（`<img>` 原尺寸，点击开灯箱、Esc 关闭）、视频（`<video>` 有进度条，`currentTime = 4` 跳转成功，`seekable.end = 6`）、音频（`<audio>`，duration 5）、PDF、**文档（docx / xlsx / pptx）**、网页、通用文件。
 - **Office 三件套真的转出来了**：三个 iframe 的 src 全部返回 `200 application/pdf` 且以 `%PDF-` 开头，frame 内部含 Chrome PDF 阅读器的 `<embed>`；pptx 显示为 1/3 页并带幻灯片缩略图侧栏，正文是真实的幻灯片内容。
@@ -213,15 +215,20 @@ npm test              # 71 个用例
 
 ## Harness 版本兼容
 
-构建与测试针对**当前唯一完整**的 harness 序列：`next` = `0.1.1-rc.2`。peer 范围带显式预发布分支，否则看似很宽的范围会把 `0.1.x` 的所有预发布静默排除。
+| 在哪 | 版本 | 证据 |
+| --- | --- | --- |
+| Web（`dsh --profile web`） | 从 `0.1.0-rc.8` 到 `0.1.7-rc.2` 的每一个已发布版本，包括 npm 的 `latest`（`0.1.5-rc.3`）、`next`（`0.1.7-rc.2`）和 `alpha`（`0.1.7-alpha.2`） | 每个版本上两份类型检查和全部 121 个测试；打包后插件在 `0.1.1-rc.2` 与 `0.1.7-rc.2` 上的启动冒烟；`0.1.7-rc.2` 上的浏览器实测（v0.1.1 时也在 `0.1.1-rc.2` 与 `0.1.5-rc.2` 上实测过） |
+| 桌面版 | `0.1.7-rc.2`——它唯一的频道 `nightly` | 在应用自带运行时上的启动冒烟；macOS 桌面窗口里的实测 |
 
-**不声明支持 `0.1.2-alpha.2`。** 那条序列发布不完整（`@deepseek-ai/dsh-client-runtime` 在该 tag 上没有构建，整体装不上），并且从 `@deepseek-ai/dsh-settings` 移除了 `installSettingsSection` 与 `settingsNamespace`，已发布的类型里没有替代品。声明支持只会让用户拿到 `ERESOLVE` 或运行时崩溃。因此 peer 范围止步于 `0.1.2` 之下；`.github/workflows/harness-compat.yml` 每周对 `next` 和 `alpha` 两条 tag 重跑类型检查与测试，上游一动就自动开 issue——范围按证据放宽，不靠乐观。
+peer 范围恰好接纳上面这些支持，无论按 npm 的 semver 规则，还是按 harness 从 0.1.7 起自己采用的「包含预发布」规则。`0.0.1` 早于浏览器半边需要的一个包；`0.1.8` 及以后等 CI 验证过才接纳。
+
+CI 负责让这份声明保持真实。每个 pull request 都会在钉住的版本、`0.1.1-rc.2` 最低线和桌面版当天分发的版本上，跑类型检查、测试、peer 接纳检查，以及打包后插件的真实启动。每天的任务对桌面版和 npm 的 `latest`、`next`、`alpha` 重复这些检查，并在 macOS 上对桌面版压缩包本身再跑一次冒烟。每周的任务扫描每一个已发布的 harness 版本，所以新版本不需要任何人手动添加就会被测到。失败会开一个 `upstream-drift` issue，第一次全绿的运行会把它关掉。发版也以同样的检查为门禁。详见 [docs/harness-compatibility.zh.md](docs/harness-compatibility.zh.md)。
 
 ## 已知限制
 
 - **只接受本地文件路径**，不接受 URL。规范值的形状留了扩展位，但 v1 没做。
 - **视频/音频的时长和分辨率不在卡片头部**——那需要 ffprobe。`<video>` 元素自己会显示。
-- **对象 URL 缓存到页面卸载才回收**。上界是一个页面生命周期内显示过的不同附件数量，与出厂对话图库按会话持有的上界同量级。
+- **插件自己读取只有附件的图片时（0.1.5 及以前），对象 URL 要到插件卸载才回收**。上界是这期间显示过的不同附件数量，与出厂对话图库按会话持有的上界同量级。0.1.7 起这些图片由对话自带的加载器持有。
 - 远程 workspace（后端不提供 `processPath`）上，非图片媒体没有可用通道，卡片如实显示「此文件系统后端不提供可预览的本地路径」。
 - 未做视频转码：浏览器放不了的编码（例如 `.mov` 里的 ProRes）会落到 `<video>` 的降级文案上。
 - 桌面版里「在新标签打开」换成**「在侧边栏预览」**（harness 自带的预览，PDF 用 PDF.js）：桌面窗口会静默拒绝指向应用 URL 的新标签。卡片里的内容——图片、播放器、PDF 与文档内嵌框——与 web 上完全一样。

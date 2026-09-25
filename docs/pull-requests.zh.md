@@ -37,15 +37,23 @@ happens at all.
 
 | 检查 | 触发 | 守住什么 |
 | --- | --- | --- |
-| `CI` | push、PR | 两个半边 typecheck、构建、71 个测试、不变量、产物新鲜度、客户端 bundle 纯度、打包产物内容 |
+| `CI` → `node 22.19`、`node 24` | push、PR | 两个半边 typecheck、构建、121 个测试、不变量、产物新鲜度、客户端 bundle 纯度、打包产物内容 |
+| `CI` → `harness / harness@pinned`、`harness / harness@floor` | push、PR | 在钉住的版本和 `0.1.1-rc.2` 最低线上：对着该版本的包跑类型检查和测试、两种 semver 规则下的 peer 接纳检查，以及打包后插件在真实 `dsh --profile web` 里的启动冒烟 |
+| `CI` → `desktop / harness@desktop` | push、PR | 在桌面版今天分发的版本上跑同样四个阶段。会显示，但不是必需检查：更新源可能在 PR 开着的时候变动 |
 | `PR review` → `invariants` | PR，含 fork | 同一套不变量检查，外部贡献者拿到一样的反馈 |
 | `PR review` → `claude` | 本仓库的 PR，且配了 `ANTHROPIC_API_KEY` | 判断题：展示器纯度、卡片降级、声明是否属实、测试能否证伪 |
-| `Harness compatibility` | 每周、手动 | 对 `next` 与 `alpha` 两条 harness tag 的上游漂移 |
+| `Harness compatibility` | 每天、每周、手动 | 每天：桌面版、npm 的 `latest` / `next` / `alpha`，以及桌面版压缩包本身；每周：每一个已发布的 harness 版本。负责开关 `upstream-drift` issue——见 [harness-compatibility.zh.md](harness-compatibility.zh.md) |
 
-其中两条断言的是普通测试查不出的事：
+分支保护里的必需检查是两条 `node`、`harness / harness@pinned` 和 `harness / harness@floor`。
 
-- **客户端 bundle 纯度**：`lib/client.js` 只能 `require` 模块表答得出的 specifier。其余的会在浏览器里激活插件时才抛错，任何测试都看不见。
+其中四条断言的是普通测试查不出的事：
+
+- **客户端 bundle 纯度**：`lib/client.js` 只能 `require` 最老的受支持 shell 的模块表答得出的 specifier。其余的会在浏览器里激活插件时才抛错，任何测试都看不见。
 - **打包产物内容**：包里没有 `cordis.patch.yml` 时，dsh 会装上插件却不激活任何层——存在，且什么都不做。
+- **peer 接纳**：从 0.1.7 起，harness 会拒绝安装或加载 peer 范围不接纳它的插件。v0.1.1 通过了其余所有检查，在 0.1.7 桌面版里依然什么都显示不出来。
+- **启动冒烟**：打包后的插件不带豁免经 `dsh plugin add` 安装，harness 能启动，启动审计里没有本插件的名字，服务端下发的浏览器 bundle 能按该版本真实的模块表执行。
+
+推送前想在本地跑这些 harness 阶段，见 [harness-compatibility.zh.md](harness-compatibility.zh.md#ci-查什么什么时候查)。
 
 检查失败会明确指出要改什么。在同一分支推修复即可。
 

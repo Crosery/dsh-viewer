@@ -61,7 +61,9 @@ The repository ships its built halves, so this needs no build step and no `allow
 dsh plugin --profile web add https://github.com/Crosery/dsh-viewer/releases/latest/download/dsh-viewer.tgz
 ```
 
-On the desktop app the `dsh plugin` CLI cannot manage the desktop profile; open **Plugins → Add plugin** and paste the release tarball URL above. Upgrading an installed plugin there needs an app restart.
+**On the desktop app**, open **Plugins → Add plugin** and paste the release tarball URL above. The `dsh` CLI refuses the desktop profile (`profile "desktop" is managed exclusively by the Electron application`), so this is the only way in. Upgrading an installed plugin there needs an app restart.
+
+**Harness 0.1.7 — the desktop app included — needs 0.2.0 or later.** From 0.1.7 the harness checks a plugin's peer ranges itself, and v0.1.1's ranges stop below 0.1.6: installing it is refused, and an already-installed copy is skipped at boot without a word — the chat works, and nothing is ever displayed.
 
 Office rendering needs a converter. From harness 0.1.6-alpha.2 on — the desktop app included — the harness's own bundled converter handles `doc` `docx` `xls` `xlsx` `ppt` `pptx` with nothing else installed. `rtf` and the OpenDocument trio, and every format on older trains, need LibreOffice on `PATH` (or the macOS app bundle):
 
@@ -130,7 +132,7 @@ npm run typecheck   # host and client are separate programs — see below
 npm run build       # two .d.ts trees + two bundles; the result is committed
 npm run check       # repo invariants: README counts, locale keys, peer range, install path
 npm run check:dist  # the committed lib/ is byte-identical to a fresh build
-npm test            # 71 cases
+npm test            # 121 cases
 ```
 
 Two tsconfigs are required, not fastidiousness: both halves augment the same `@deepseek-ai/cordis` `Context`, and `sessions` is `SessionStore` on the host but `ISessions` in the browser. One program seeing both augmentations silently resolves the wrong one, because `skipLibCheck` hides the conflict.
@@ -139,15 +141,20 @@ Two tsconfigs are required, not fastidiousness: both halves augment the same `@d
 
 ## Harness compatibility
 
-Built and tested against the newest **coherent** harness train, `next` = `0.1.1-rc.2`, and the peer ranges carry an explicit prerelease branch so every `0.1.x` prerelease resolves — a naive broad range silently excludes them all.
+| Where | Versions | Evidence |
+| --- | --- | --- |
+| Web (`dsh --profile web`) | every published version from `0.1.0-rc.8` through `0.1.7-rc.2` — npm `latest` (`0.1.5-rc.3`), `next` (`0.1.7-rc.2`) and `alpha` (`0.1.7-alpha.2`) included | both typechecks and all 121 tests on each version; a boot smoke of the packed plugin on `0.1.1-rc.2` and `0.1.7-rc.2`; live in a browser on `0.1.7-rc.2` (v0.1.1 also on `0.1.1-rc.2` and `0.1.5-rc.2`) |
+| Desktop app | `0.1.7-rc.2` — its only channel, `nightly` | the boot smoke on the app's own runtime; live in the desktop window on macOS |
 
-`0.1.2-alpha.2` is deliberately **not** claimed. That train is published incomplete (`@deepseek-ai/dsh-client-runtime` has no build on it, so it cannot install as a set) and it drops `installSettingsSection` and `settingsNamespace` from `@deepseek-ai/dsh-settings` with no replacement in the published types. Claiming support would hand users an `ERESOLVE` or a runtime crash. The peer range therefore stops below `0.1.2`, and a scheduled CI job (`.github/workflows/harness-compat.yml`) re-tests against the `next` and `alpha` tags weekly and opens an issue the moment upstream moves — so the range widens on evidence, not optimism.
+The peer ranges admit exactly that support, under npm's semver rule and under the prerelease-inclusive rule the harness applies itself from 0.1.7. `0.0.1` predates a package the browser half needs; `0.1.8` and later are admitted once CI has verified them.
+
+CI keeps the claim honest. Every pull request runs typecheck, tests, peer admission and a real boot of the packed plugin on the pinned train, on the `0.1.1-rc.2` floor and on whatever the desktop app ships that day. A daily job repeats that against the desktop app and npm's `latest`, `next` and `alpha`, and against the desktop zip itself on macOS. A weekly job sweeps every published harness version, so a new one shows up without anyone adding it. A failure opens an `upstream-drift` issue, and the first green run closes it. Releases are gated on the same checks. Details: [docs/harness-compatibility.md](docs/harness-compatibility.md).
 
 ## Known limitations
 
 - Local file paths only; URLs are not accepted.
 - Video and audio duration/resolution are not in the card header — that needs `ffprobe`. The player shows them.
-- Object URLs are revoked at page unload, bounding held blobs by the number of distinct attachments displayed in one page lifetime.
+- Where the plugin reads an attachment-only image itself (up to 0.1.5), the object URL lives until the plugin unloads, bounding held blobs by the distinct attachments displayed meanwhile. From 0.1.7 the chat's own loader owns them.
 - On a remote workspace with no `processPath`, non-image media have no channel and the card says so.
 - No transcoding: a codec the browser refuses (ProRes in a `.mov`) falls back to the `<video>` fallback text.
 - In the desktop app, "Open in a new tab" becomes **Preview in sidebar** (the harness's own preview, PDF.js for PDFs): the desktop window silently refuses new tabs for app URLs. Everything inside the card — images, players, PDF and document frames — renders the same as on the web.
