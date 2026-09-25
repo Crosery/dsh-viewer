@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { describe, it } from 'node:test'
 import { FLOOR, planCells, parseFeed, refusals, sweepStart, tupleHeads } from '../scripts/harness-lib.mjs'
-import { classifyDiagnostics, exportedNames, maskTokens, membersRead, moduleTableOf } from '../scripts/smoke-lib.mjs'
+import { bootGraphOf, classifyDiagnostics, exportedNames, maskTokens, membersRead, moduleTableOf, publishedTooLate } from '../scripts/smoke-lib.mjs'
 
 const require = createRequire(import.meta.url)
 const verdict = require('../scripts/harness-verdict.cjs')
@@ -131,6 +131,19 @@ describe('boot smoke parsing', () => {
     assert.deepEqual(classifyDiagnostics('dsh web: http://127.0.0.1:1/?token=abc\n', name), { ours: [], others: [] })
     const rejected = classifyDiagnostics(`dsh: installation rejected: Plugin ${name}@0.1.1 is incompatible with dsh 0.1.7-rc.2: peerDependencies {}\nPlugin ${name}@0.1.1 is incompatible with dsh 0.1.7-rc.2: peerDependencies {}\n`, name)
     assert.equal(rejected.ours.length, 1)
+  })
+
+  it('reads the boot graph in the 0.1.0 and the 0.1.1+ spelling', () => {
+    const graph = { entries: [{ id: '@crosery/dsh-viewer', url: '/plugins/x/client.js?rev=1' }] }
+    assert.deepEqual(bootGraphOf(`<head><script>globalThis["__DSH_BOOT__"] = ${JSON.stringify(graph)}</script></head>`), graph)
+    assert.deepEqual(bootGraphOf(`<script src="/a.js"></script><script>window.__DSH_BOOT__ = ${JSON.stringify(graph)}</script>`), graph)
+    assert.equal(bootGraphOf('<html></html>'), undefined)
+  })
+
+  it('names the package a release depends on that was published after the cutoff', () => {
+    const npm = 'npm error notarget No matching version found for @deepseek-ai/dsh-client-ui-sidebar-documentpreview@^0.1.5-rc.3 with a date before 2026/9/22 14:23:31.'
+    assert.deepEqual(publishedTooLate(npm), { name: '@deepseek-ai/dsh-client-ui-sidebar-documentpreview', version: '0.1.5-rc.3' })
+    assert.equal(publishedTooLate('npm error code ERESOLVE'), undefined)
   })
 
   it('never lets a session token through', () => {

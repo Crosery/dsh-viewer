@@ -64,3 +64,23 @@ export function exportedNames(text) {
   return new Set([...text.matchAll(/export\s*\{([^}]*)\}/g)]
     .flatMap((m) => m[1].split(',').map((s) => s.trim().split(/\s+as\s+/).pop()).filter(Boolean)))
 }
+
+/**
+ * The package and version an `npm install --before` could not find, when a
+ * release depends on a package of its own train published after the cutoff.
+ * `undefined` for any other failure.
+ */
+export function publishedTooLate(npmOutput) {
+  const match = /No matching version found for (@?[^@\s]+)@\S*?(\d+\.\d+\.\d+[\w.-]*) with a date before/.exec(npmOutput)
+  return match === null ? undefined : { name: match[1], version: match[2] }
+}
+
+/**
+ * The boot graph an index page carries: `globalThis["__DSH_BOOT__"] = …` from
+ * 0.1.1 (dsh-host-webserver's global row), `window.__DSH_BOOT__ = …` on
+ * 0.1.0 (dsh-client-modules wrote the script itself). `undefined` without one.
+ */
+export function bootGraphOf(html) {
+  const wire = /<script>(?:globalThis\["__DSH_BOOT__"\]|window\.__DSH_BOOT__) = (.*?)<\/script>/s.exec(html)
+  return wire === null ? undefined : JSON.parse(wire[1])
+}

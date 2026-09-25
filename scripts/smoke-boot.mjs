@@ -60,7 +60,7 @@ import { delimiter, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import vm from 'node:vm'
-import { classifyDiagnostics, exportedNames, maskTokens as mask, membersRead, moduleTableOf } from './smoke-lib.mjs'
+import { bootGraphOf, classifyDiagnostics, exportedNames, maskTokens as mask, membersRead, moduleTableOf, publishedTooLate } from './smoke-lib.mjs'
 
 const { values } = parseArgs({
   options: {
@@ -141,6 +141,12 @@ function supersededAt(version) {
   return later[0]
 }
 
+/** When one version of a package was published, or `undefined`. */
+function publishedAt(name, version) {
+  const r = run('npm', ['view', name, 'time', '--json'], { allowFailure: true })
+  try { return JSON.parse(r.stdout)[version] } catch { return undefined }
+}
+
 /** Boot `dsh --profile web` in `dshHome`; resolves once the URL is printed and survived, or it failed. */
 async function boot(dshBin, dshHome) {
   const port = await freePort()
@@ -151,12 +157,16 @@ async function boot(dshBin, dshHome) {
   proc.stdout.setEncoding('utf8').on('data', (s) => { io.stdout += s })
   proc.stderr.setEncoding('utf8').on('data', (s) => { io.stderr += s })
   const exited = new Promise((ok) => proc.once('exit', (code, signal) => ok({ code, signal })))
-  const sleep = (ms, value) => new Promise((r) => setTimeout(() => r(value), ms))
+  // Unreferenced: a race's losing timer must not hold the process open for
+  // the whole boot timeout after the smoke is done.
+  const sleep = (ms, value) => new Promise((r) => setTimeout(() => r(value), ms).unref())
+  let waiting = true
   let outcome = await Promise.race([
-    (async () => { while (!/^dsh web: https?:\/\//m.test(io.stdout)) await sleep(250); return 'url' })(),
+    (async () => { while (waiting && !/^dsh web: https?:\/\//m.test(io.stdout)) await sleep(250); return 'url' })(),
     exited.then(() => 'exit'),
     sleep(timeoutMs, 'timeout'),
   ])
+  waiting = false
   // Up to 0.1.1 the URL is printed before the startup audit, which then exits
   // the process on an entry that did not activate. Give it time to.
   if (outcome === 'url') outcome = await Promise.race([exited.then(() => 'exit after url'), sleep(5000, 'url')])
@@ -166,7 +176,7 @@ async function boot(dshBin, dshHome) {
 async function stop(proc) {
   if (proc === undefined || proc.exitCode !== null || proc.signalCode !== null) return
   try { process.kill(-proc.pid, 'SIGINT') } catch {}
-  const stopped = await Promise.race([new Promise((r) => proc.once('exit', () => r(true))), new Promise((r) => setTimeout(() => r(false), 15000))])
+  const stopped = await Promise.race([new Promise((r) => proc.once('exit', () => r(true))), new Promise((r) => setTimeout(() => r(false), 15000).unref())])
   if (!stopped) try { process.kill(-proc.pid, 'SIGKILL') } catch {}
 }
 
@@ -187,26 +197,33 @@ try {
     assert.ok(values.dsh, '--dsh <exact version> or --harness-dir is required')
     harnessRoot = join(work, 'harness')
     const spec = `@deepseek-ai/dsh@${values.dsh}`
-    const flags = ['install', '--prefix', harnessRoot, '--no-audit', '--no-fund', '--no-save', spec]
-    let via = 'npm install'
-    if (values.graph === 'released') {
-      const before = supersededAt(values.dsh)
-      if (before !== undefined) {
-        flags.push('--before', before)
-        via += ` --before ${before} (as released)`
+    const installArgs = ['install', '--prefix', harnessRoot, '--no-audit', '--no-fund', '--no-save', spec]
+    let before = values.graph === 'released' ? supersededAt(values.dsh) : undefined
+    if (values.graph !== 'released' && values.graph !== 'today') fail('harness', `--graph must be released or today, not ${values.graph}`)
+    let legacy = false
+    let output = ''
+    for (let attempt = 0; ; attempt++) {
+      const flags = [...installArgs, ...(before === undefined ? [] : ['--before', before]), ...(legacy ? ['--legacy-peer-deps'] : [])]
+      const r = run('npm', flags, { allowFailure: true })
+      output = `${r.stdout}${r.stderr}`
+      if (r.status === 0) break
+      if (attempt >= 8) fail('harness', `npm install ${spec} kept failing: ${mask(output.slice(-2000))}`)
+      // Upstream sometimes publishes a train's own package after the next
+      // @deepseek-ai/dsh (0.1.5-rc.3's sidebar-documentpreview came 6 h
+      // later): the release became installable only then, so move the
+      // cutoff to that publish.
+      const late = publishedTooLate(output)
+      if (before !== undefined && late !== undefined) {
+        const at = publishedAt(late.name, late.version)
+        if (at !== undefined && at >= before) { before = new Date(Date.parse(at) + 1000).toISOString(); continue }
       }
-    } else if (values.graph !== 'today') {
-      fail('harness', `--graph must be released or today, not ${values.graph}`)
+      // Early prereleases carry caret peers that pull a later prerelease of
+      // the same tuple; @deepseek-ai/dsh pins every package it composes
+      // exactly, which is the graph a user runs.
+      if (!legacy && /ERESOLVE/.test(output)) { legacy = true; continue }
+      fail('harness', `npm install ${spec}${before === undefined ? '' : ` --before ${before}`} failed: ${mask(output.slice(-2000))}`)
     }
-    const first = run('npm', flags, { allowFailure: true })
-    if (first.status !== 0) {
-      // Early prereleases carry caret peers that pull a later prerelease of the
-      // same tuple; @deepseek-ai/dsh pins every package it composes exactly,
-      // which is the graph a user runs.
-      if (!/ERESOLVE/.test(`${first.stdout}${first.stderr}`)) fail('harness', `npm install ${spec} failed: ${mask(`${first.stderr}`.slice(-2000))}`)
-      run('npm', [...flags, '--legacy-peer-deps'])
-      via += ' --legacy-peer-deps (the peer graph hit ERESOLVE)'
-    }
+    const via = `npm install${before === undefined ? '' : ` --before ${before} (as released)`}${legacy ? ' --legacy-peer-deps (the peer graph hit ERESOLVE)' : ''}`
     result.install = via
     dshBin = join(harnessRoot, 'node_modules/@deepseek-ai/dsh/lib/bin.js')
   }
@@ -292,9 +309,8 @@ try {
   const index = first.status === 200 ? first : await fetch(base, { headers })
   if (index.status !== 200) fail('client-graph', `the index answered ${index.status} after the token exchange (${first.status})`)
   const html = await index.text()
-  const wire = /globalThis\["__DSH_BOOT__"\] = (.*?)<\/script>/s.exec(html)
-  if (wire === null) fail('client-graph', 'the index carries no __DSH_BOOT__ graph')
-  const graph = JSON.parse(wire[1])
+  const graph = bootGraphOf(html)
+  if (graph === undefined) fail('client-graph', 'the index carries no __DSH_BOOT__ graph')
   const entries = new Map(graph.entries.map((e) => [e.id, e]))
   const entry = entries.get(pkg.name)
   if (entry === undefined) fail('client-graph', `${pkg.name} is not in __DSH_BOOT__ (${graph.entries.length} entries)`)
