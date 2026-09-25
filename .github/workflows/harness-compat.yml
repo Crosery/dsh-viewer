@@ -1,140 +1,330 @@
-# Upstream drift detector.
+# Does this plugin still work on the harness people actually run?
 #
-# The harness is on a fast prerelease train and its published `latest` tag is
-# far behind `next`. A plugin pinned to one train silently rots: the day an
-# export is renamed or removed, nothing here fails until a user hits it.
+# One question per cell, four stages per cell:
 #
-# This job installs whatever the chosen dist-tag currently resolves to and
-# typechecks against it. It is expected to fail sometimes — that failure IS the
-# signal, which is why it opens an issue instead of just going red on a branch
-# nobody is watching.
+#   types      both typechecks against that train's published .d.ts
+#   tests      the plugin's own tests against that train's packages
+#   admission  the peer ranges admit the version under BOTH semver rules — the
+#              prerelease-inclusive one dsh >= 0.1.7 applies at install and at
+#              boot (it refuses or silently skips a plugin that fails it), and
+#              the default one npm and pnpm apply
+#   smoke      scripts/smoke-boot.mjs: the packed plugin installs through the
+#              official `dsh plugin add`, activates, and is served by a real
+#              `dsh --profile web`
+#
+# v0.1.1 passed types and tests on 0.1.7 and still could not display anything
+# in the desktop app: admission refused it. That is why all four exist.
+#
+# Cells (scripts/harness-target.mjs resolves each one to an exact version):
+#
+#   pinned              the devDependencies pin          gates PRs and releases
+#   floor               0.1.1-rc.2                       gates PRs and releases
+#   desktop             what the desktop app ships now,  on PRs (not required),
+#                       read from both update feeds       daily, gates releases
+#   latest|next|alpha   npm dist-tags                    daily
+#   sweep               every published version from     weekly; its types, tests
+#                       the lowest the peers admit        and admission gate releases
+#   desktop-bytes       the same smoke on the desktop    daily, gates releases
+#                       zip itself (macOS job below)
+#
+# A train published without a package this plugin needs — or not published on
+# npm yet — is "incomplete": neutral, it neither opens nor closes an issue.
+#
+# Scheduled and dispatched runs report: a failing cell opens or comments on
+# the `upstream-drift` issue "Harness compatibility broken against @<cell>",
+# and a cell whose every stage passes comments on that issue and closes it.
 name: Harness compatibility
 
 on:
   schedule:
-    - cron: '17 5 * * 1'
+    - cron: '17 5 * * *'   # daily: desktop, latest, next, alpha, desktop-bytes
+    - cron: '43 6 * * 1'   # weekly: the full sweep, desktop-bytes
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'npm dist-tag of the harness to test against'
-        default: next
+      cells:
+        description: 'Comma-separated: pinned, floor, desktop, latest, next, alpha, sweep, or exact versions'
+        default: 'desktop,latest,next,alpha'
         type: string
+      smoke:
+        description: 'Boot smoke for sweep rows'
+        default: heads
+        type: choice
+        options: [heads, all, none]
+      desktop-bytes:
+        description: 'Also smoke the desktop zip on macOS'
+        default: true
+        type: boolean
+      report:
+        description: 'Open, comment on and close upstream-drift issues'
+        default: true
+        type: boolean
+  workflow_call:
+    inputs:
+      cells:
+        type: string
+        default: 'pinned,floor'
+      smoke:
+        type: string
+        default: heads
+      desktop-bytes:
+        type: boolean
+        default: false
+      report:
+        type: boolean
+        default: false
+      ref:
+        description: 'Ref to test; the caller''s ref when empty'
+        type: string
+        default: ''
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
-  against-tag:
+  plan:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        tag: [next, alpha]
-    name: harness@${{ matrix.tag }}
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: npm
 
-      - name: Repoint every harness devDependency at ${{ matrix.tag }}
-        id: repoint
+      # The resolver needs semver; the lockfile provides it.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Plan the cells
+        id: plan
+        env:
+          CELLS: ${{ inputs.cells || (github.event.schedule == '43 6 * * 1' && 'sweep') || 'desktop,latest,next,alpha' }}
+          SMOKE: ${{ inputs.smoke || 'heads' }}
+        run: node scripts/harness-target.mjs --plan "$CELLS" --smoke "$SMOKE"
+
+  against:
+    needs: plan
+    name: harness@${{ matrix.cell }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Only the verdict writes issues, and only when reporting. A caller must
+    # grant this too: a called workflow cannot hold more than its caller gives.
+    permissions:
+      contents: read
+      issues: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      CELL: ${{ matrix.cell }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # Exit 3 is an incomplete train: the step passes, `incomplete` is set,
+      # and every later stage stands down.
+      - name: Resolve ${{ matrix.cell }}
+        id: target
         run: |
-          node - "${{ matrix.tag }}" <<'JS'
-          const { execSync } = require('node:child_process')
-          const fs = require('node:fs')
-          const tag = process.argv[2]
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
-          const moved = []
-          const missing = []
-          for (const name of Object.keys(pkg.devDependencies)) {
-            // cordis and schemastery version independently of the harness train.
-            if (!name.startsWith('@deepseek-ai/dsh-')) continue
-            let version
-            try {
-              version = execSync(`npm view ${name}@${tag} version`, { encoding: 'utf8' }).trim()
-            } catch { version = '' }
-            if (version === '') { missing.push(name); continue }
-            pkg.devDependencies[name] = version
-            moved.push(`${name}@${version}`)
-          }
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n')
-          console.log('repointed:', moved.length, 'packages')
-          if (missing.length > 0) console.log('no build on this tag:', missing.join(', '))
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### harness@${tag}\n\n- repointed ${moved.length}\n- absent on tag: ${missing.join(', ') || 'none'}\n`)
-          JS
+          set +e
+          node scripts/harness-target.mjs "$CELL" --repoint
+          status=$?
+          if [ "$status" = 3 ]; then exit 0; fi
+          exit "$status"
 
-      # Two different questions, two different installs.
-      #
-      # Does this plugin still compile against the train's published *types*?
-      # That is the drift signal, and it must be answerable even on a train whose
-      # peer graph does not resolve — `--legacy-peer-deps` ignores the graph and
-      # materializes the packages anyway.
-      - name: Install for typecheck
-        run: npm install --no-audit --no-fund --ignore-scripts --legacy-peer-deps
+      - name: Install that train
+        id: install
+        if: steps.target.outputs.incomplete != 'true'
+        env:
+          TARGET: ${{ matrix.cell == 'pinned' && 'pinned' || steps.target.outputs.version }}
+        run: |
+          set +e
+          node scripts/harness-target.mjs "$TARGET" --install
+          status=$?
+          if [ "$status" = 3 ]; then exit 0; fi
+          exit "$status"
 
-      - name: Typecheck against ${{ matrix.tag }}
+      - name: Typecheck both halves
+        id: types
+        if: steps.target.outputs.incomplete != 'true' && steps.install.outputs.incomplete != 'true'
+        continue-on-error: true
         run: npm run typecheck
 
-      # Do this plugin's own tests pass? They import the harness packages at
-      # runtime, so they need a graph that actually resolved. A train published
-      # incomplete cannot offer that, and saying so is more useful than a red
-      # that reads like a code defect: `dsh-tools` peer-requires packages that
-      # several alpha tags never shipped, and `--legacy-peer-deps` would install
-      # `dsh-tools` without them, turning "upstream is incomplete" into
-      # ERR_MODULE_NOT_FOUND inside our test run.
-      #
-      # Only ERESOLVE counts as incomplete. Anything else — a registry outage, a
-      # tarball that 404s — is a real failure and keeps the drift report below.
-      - name: Install the resolved graph
-        id: peers
-        run: |
-          if npm install --no-audit --no-fund --ignore-scripts > /tmp/peers.log 2>&1; then
-            echo "resolved=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if grep -q 'ERESOLVE' /tmp/peers.log; then
-            echo "resolved=false" >> "$GITHUB_OUTPUT"
-            tail -30 /tmp/peers.log
-            exit 0
-          fi
-          echo "install failed for a reason other than peer resolution:"
-          tail -60 /tmp/peers.log
-          exit 1
-
-      - name: Test against ${{ matrix.tag }}
-        if: steps.peers.outputs.resolved == 'true'
+      - name: Test
+        id: tests
+        if: steps.target.outputs.incomplete != 'true' && steps.install.outputs.incomplete != 'true'
+        continue-on-error: true
         run: npm test
 
-      - name: Report an incomplete train
-        if: steps.peers.outputs.resolved == 'false'
-        run: |
-          echo "::notice title=harness@${{ matrix.tag }} is published incomplete::its own peer graph does not resolve, so this plugin's runtime tests cannot run against it. Types still compiled, which is the drift signal."
-          {
-            echo "### harness@${{ matrix.tag }} — incomplete train"
-            echo
-            echo 'The harness set on this tag does not resolve its own peer graph, so runtime tests were **not run**. Typecheck still ran against the published types.'
-            echo
-            echo 'Not a defect in this plugin, and not something to adapt to: the peer range widens when a coherent train exists.'
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Peer admission
+        id: admission
+        if: steps.target.outputs.incomplete != 'true' && steps.install.outputs.incomplete != 'true'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.target.outputs.version }}
+        run: node scripts/harness-target.mjs "$VERSION" --admits
 
-      - name: Report drift
-        if: failure()
-        uses: actions/github-script@v7
+      - name: Boot smoke
+        id: smoke
+        if: matrix.smoke && steps.target.outputs.incomplete != 'true' && steps.install.outputs.incomplete != 'true'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.target.outputs.version }}
+          SMOKE_RESULT: ${{ runner.temp }}/smoke.jsonl
+        run: |
+          # Never pack a repointed manifest: the smoke installs what a user gets.
+          git checkout -- package.json package-lock.json
+          node scripts/smoke-boot.mjs --dsh "$VERSION"
+
+      - if: always() && steps.target.outputs.version != ''
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const tag = '${{ matrix.tag }}'
-            const title = `Harness compatibility broken against @${tag}`
-            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            const existing = await github.rest.issues.listForRepo({
-              owner: context.repo.owner, repo: context.repo.repo,
-              state: 'open', labels: 'upstream-drift',
-            })
-            const hit = existing.data.find(i => i.title === title)
-            const body = `The scheduled compatibility job failed against the \`${tag}\` harness train.\n\nRun: ${url}\n\nThis usually means an upstream export was renamed or removed. Check the failing typecheck output before widening the peer range in \`package.json\`.`
-            if (hit) {
-              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: hit.number, body })
-            } else {
-              await github.rest.issues.create({ owner: context.repo.owner, repo: context.repo.repo, title, body, labels: ['upstream-drift'] })
-            }
+          name: harness-${{ matrix.cell }}
+          path: ${{ runner.temp }}/smoke.jsonl
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Verdict
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          VERSION: ${{ steps.target.outputs.version }}
+          INCOMPLETE: ${{ steps.target.outputs.incomplete == 'true' || steps.install.outputs.incomplete == 'true' }}
+          EXPECTED: ${{ matrix.smoke && 'types,tests,admission,smoke' || 'types,tests,admission' }}
+          REPORT: ${{ github.event_name == 'schedule' || inputs.report }}
+          STAGE_resolve: ${{ steps.target.outcome }}
+          STAGE_install: ${{ steps.install.outcome }}
+          STAGE_types: ${{ steps.types.outcome }}
+          STAGE_tests: ${{ steps.tests.outcome }}
+          STAGE_admission: ${{ steps.admission.outcome }}
+          STAGE_smoke: ${{ steps.smoke.outcome }}
+        with:
+          script: await require('./scripts/harness-verdict.cjs')({ github, context, core })
+
+  # The same smoke on the desktop app's own bytes: its Electron Node, the exact
+  # runtime package set inside app.asar and its bundled pnpm. mac-arm64 is the
+  # only mac feed that exists, and macos-latest is arm64.
+  #
+  # Not covered here or anywhere in CI: the Electron renderer, the preload
+  # bridge and native drag-and-drop. Those need the GUI.
+  desktop-bytes:
+    if: github.event_name == 'schedule' || inputs.desktop-bytes
+    name: harness@desktop-bytes
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      issues: write
+    env:
+      CELL: desktop-bytes
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Read the mac-arm64 feed
+        id: feed
+        run: node scripts/harness-target.mjs --feed mac-arm64
+
+      - uses: actions/cache@v4
+        id: app
+        with:
+          path: ~/dsh-desktop
+          # hashFiles() only sees the workspace; the feed's digest names the build exactly.
+          key: dsh-desktop-mac-arm64-${{ steps.feed.outputs.version }}-${{ steps.feed.outputs.sha512 }}
+
+      - name: Download and verify the shipped zip
+        id: download
+        if: steps.app.outputs.cache-hit != 'true'
+        env:
+          URL: ${{ steps.feed.outputs.path }}
+          SHA512: ${{ steps.feed.outputs.sha512 }}
+        run: |
+          curl -fL --retry 3 --retry-delay 10 "$URL" -o "$RUNNER_TEMP/app.zip"
+          actual="$(openssl dgst -sha512 -binary "$RUNNER_TEMP/app.zip" | base64)"
+          if [ "$actual" != "$SHA512" ]; then echo "::error::sha512 mismatch: the zip is not the build the feed announces"; exit 1; fi
+          mkdir -p ~/dsh-desktop
+          ditto -x -k "$RUNNER_TEMP/app.zip" ~/dsh-desktop
+          rm "$RUNNER_TEMP/app.zip"
+
+      - name: Cross-check the bundled runtime against the feed
+        id: runtime
+        env:
+          VERSION: ${{ steps.feed.outputs.version }}
+        run: |
+          APP="$(find ~/dsh-desktop -maxdepth 2 -name '*.app' -print -quit)"
+          EXE="$APP/Contents/MacOS/$(defaults read "$APP/Contents/Info" CFBundleExecutable)"
+          RES="$APP/Contents/Resources"
+          {
+            echo "exe=$EXE"
+            echo "harness=$RES/app.asar/dsh"
+            echo "pnpm=$RES/runtime/pnpm/bin/pnpm.mjs"
+          } >> "$GITHUB_OUTPUT"
+          # desktop-runtime.json is what the app reports as its bundled dsh.
+          ELECTRON_RUN_AS_NODE=1 "$EXE" -e '
+            const [dir, feed] = process.argv.slice(1)
+            const r = JSON.parse(require("fs").readFileSync(dir + "/desktop-runtime.json", "utf8"))
+            const dsh = JSON.parse(require("fs").readFileSync(dir + "/node_modules/@deepseek-ai/dsh/package.json", "utf8")).version
+            console.log(JSON.stringify({ feed, release: r.release, dsh }))
+            if (r.release.version !== feed || dsh !== feed) { console.error("::error::the app bundles " + dsh + " (" + r.release.version + ") but its feed announces " + feed); process.exit(1) }
+          ' "$RES/app.asar/dsh" "$VERSION"
+
+      - name: Boot smoke on the desktop runtime
+        id: smoke
+        continue-on-error: true
+        env:
+          EXE: ${{ steps.runtime.outputs.exe }}
+          HARNESS: ${{ steps.runtime.outputs.harness }}
+          PNPM_MJS: ${{ steps.runtime.outputs.pnpm }}
+          SMOKE_RESULT: ${{ runner.temp }}/smoke.jsonl
+        run: |
+          # `dsh plugin` runs whatever pnpm is on PATH: make that the app's own.
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec "%s" "%s" "$@"\n' "$EXE" "$PNPM_MJS" > "$RUNNER_TEMP/bin/pnpm"
+          chmod +x "$RUNNER_TEMP/bin/pnpm"
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+          ELECTRON_RUN_AS_NODE=1 "$EXE" scripts/smoke-boot.mjs --harness-dir "$HARNESS"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-desktop-bytes
+          path: ${{ runner.temp }}/smoke.jsonl
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Verdict
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          VERSION: ${{ steps.feed.outputs.version }}
+          INCOMPLETE: 'false'
+          EXPECTED: feed,runtime,smoke
+          REPORT: ${{ github.event_name == 'schedule' || inputs.report }}
+          STAGE_feed: ${{ steps.feed.outcome }}
+          STAGE_download: ${{ steps.download.outcome }}
+          STAGE_runtime: ${{ steps.runtime.outcome }}
+          STAGE_smoke: ${{ steps.smoke.outcome }}
+        with:
+          script: await require('./scripts/harness-verdict.cjs')({ github, context, core })

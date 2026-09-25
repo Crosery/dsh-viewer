@@ -3,6 +3,12 @@
 # The attached tarball is what lets users install without the profile's
 # `allowBuilds` build-approval step, so it is built by CI rather than from
 # whatever happened to be on a laptop.
+#
+# Nothing is attached or published until `gate` passes: the tag's own tree
+# must install, activate and be served on its pinned train, on the floor, on
+# the version the desktop app ships today (as the npm Web app and as the
+# desktop zip itself), and must typecheck, test and be admitted on every
+# published harness version the sweep finds.
 name: Release
 
 on:
@@ -19,7 +25,21 @@ permissions:
   contents: write
 
 jobs:
+  gate:
+    # `issues: write` is declared by the called workflow; `report` is off, so
+    # a release run never files issues.
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/harness-compat.yml
+    with:
+      cells: pinned,floor,desktop,sweep
+      smoke: none
+      desktop-bytes: true
+      ref: ${{ inputs.tag || github.ref }}
+
   release:
+    needs: gate
     runs-on: ubuntu-latest
     # The token lives here, not on the publish step below: GitHub evaluates a
     # step's `if` before applying that step's own `env`, so a guard reading a
@@ -65,17 +85,45 @@ jobs:
           # A version-free asset name so `releases/latest/download/dsh-viewer.tgz`
           # keeps resolving after the next release. `latest/download/` resolves
           # `latest` at request time but takes the filename literally.
-          cp "$(ls *.tgz)" dsh-viewer.tgz
+          cp -- "$(ls -- *.tgz)" dsh-viewer.tgz
           ls -la dsh-viewer.tgz
+
+      # The exact harness versions the gate verified, prepended to the notes of
+      # a new release and written to this run's summary either way.
+      - name: Collect what the gate verified
+        uses: actions/download-artifact@v4
+        with:
+          pattern: harness-*
+          path: ${{ runner.temp }}/verified
+
+      - name: Compatibility note
+        run: |
+          node - "$RUNNER_TEMP/verified" > "$RUNNER_TEMP/notes.md" <<'JS'
+          const { existsSync, readdirSync, readFileSync } = require('node:fs')
+          const dir = process.argv[2]
+          const rows = (existsSync(dir) ? readdirSync(dir) : []).sort().flatMap((cell) => {
+            const file = `${dir}/${cell}/smoke.jsonl`
+            if (!existsSync(file)) return []
+            return readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((line) => [cell.replace(/^harness-/, ''), JSON.parse(line)])
+          })
+          console.log('### Verified harness versions\n')
+          console.log('Boot smoke of this release\'s tarball: installed with `dsh plugin add` (no exemption), activated and served.\n')
+          console.log('| cell | dsh | smoke |\n| --- | --- | --- |')
+          for (const [cell, r] of rows) console.log(`| ${cell} | ${r.dsh ?? '?'} | ${r.outcome} |`)
+          console.log('\nEvery published harness version the gate swept either passed typecheck, tests and peer admission or is published incomplete upstream; the gate run lists each one.')
+          JS
+          cat "$RUNNER_TEMP/notes.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
-          gh release view "$TAG" >/dev/null 2>&1 \
-            && gh release upload "$TAG" dsh-viewer.tgz --clobber \
-            || gh release create "$TAG" dsh-viewer.tgz --generate-notes --title "$TAG"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dsh-viewer.tgz --clobber
+          else
+            gh release create "$TAG" dsh-viewer.tgz --generate-notes --notes-file "$RUNNER_TEMP/notes.md" --title "$TAG"
+          fi
 
       # Opt-in, and off by default.
       #
