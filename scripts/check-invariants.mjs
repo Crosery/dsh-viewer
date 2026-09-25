@@ -65,22 +65,57 @@ for (const kind of kinds) {
   if (!(titleKey in en)) fail('locales', `kind "${kind}" has no ${titleKey}`)
 }
 
-// 4. The prerelease trap: a peer range without an explicit prerelease branch on
-//    the matching major.minor.patch tuple silently excludes every prerelease of
-//    that tuple, and users hit ERESOLVE.
-for (const [name, pinned] of Object.entries(pkg.devDependencies)) {
-  const range = pkg.peerDependencies?.[name]
-  if (range === undefined) continue
-  const version = pinned.replace(/^[\^~]/, '')
-  if (!semver.valid(version)) continue
-  if (!semver.satisfies(version, range)) {
-    fail(
-      'peerDependencies',
-      `${name} is pinned to ${version} in devDependencies but the peer range \`${range}\` does not admit it` +
-        (semver.prerelease(version) ? ' — a prerelease needs a comparator on its own major.minor.patch tuple that itself carries a prerelease tag' : ''),
-    )
+// 4. The prerelease trap, and the version gate. node-semver admits a
+//    prerelease only through a comparator on its own major.minor.patch tuple
+//    that itself carries a prerelease tag; a range without one silently
+//    excludes every prerelease of that tuple and npm/pnpm users hit ERESOLVE.
+//    dsh ≥0.1.7 applies the same ranges itself, prerelease-inclusive
+//    (`evaluatePluginCompatibility` in dsh-app-boot), refusing the install and
+//    silently skipping an installed plugin at boot. So every claim is checked
+//    under BOTH rules: the devDependency pin, and every train
+//    docs/harness-compatibility.md lists as verified. And nothing outside the
+//    documented support may be admitted — an unverified train that resolves is
+//    the failure this catches, and `npm install` never shows it.
+//    `node scripts/sweep-trains.mjs` produces the verified list.
+const VERIFIED_TRAINS = [
+  '0.1.0-rc.8',
+  '0.1.1-rc.1', '0.1.1-rc.2',
+  '0.1.2-alpha.2', '0.1.2-alpha.3', '0.1.2-alpha.4', '0.1.2-alpha.5', '0.1.2-rc.1',
+  '0.1.3-alpha.2',
+  '0.1.5-alpha.1', '0.1.5-alpha.2', '0.1.5-rc.1', '0.1.5-rc.2', '0.1.5-rc.3',
+  '0.1.6-alpha.1', '0.1.6-alpha.2',
+  '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2',
+]
+// Admitted by the range but not verifiable: 0.1.0-rc.2 – rc.7 predate
+// `@deepseek-ai/dsh-client-ui-renderer`, which the browser half compiles
+// against and injects (first published at 0.1.0-rc.8). Neither asserted in
+// nor out; docs/harness-compatibility.md says so.
+/** Builds that must stay outside: 0.0.1 predates the renderer package too; 0.1.4 was never published; 0.1.8+ waits for a sweep. */
+const OUTSIDE = ['0.0.1-rc.1', '0.0.1-rc.2', '0.0.1-rc.5', '0.1.4-rc.0', '0.1.8-alpha.0', '0.1.8-rc.0', '0.1.8', '0.2.0']
+const rules = [['default semver (npm, pnpm)', {}], ['includePrerelease (dsh ≥0.1.7 install and boot)', { includePrerelease: true }]]
+for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
+  if (name !== '@deepseek-ai/dsh' && !name.startsWith('@deepseek-ai/dsh-')) continue
+  const pinned = pkg.devDependencies?.[name]
+  const trains = [...(pinned !== undefined && semver.valid(pinned) ? [pinned] : []), ...VERIFIED_TRAINS]
+  for (const train of trains) {
+    for (const [rule, options] of rules) {
+      if (!semver.satisfies(train, range, options)) {
+        fail('peerDependencies', `${name} \`${range}\` rejects ${train === pinned ? 'the pinned' : 'the verified'} train ${train} under ${rule}` +
+          (semver.prerelease(train) ? ' — a prerelease needs a comparator on its own major.minor.patch tuple that itself carries a prerelease tag' : ''))
+      }
+    }
   }
+  for (const train of OUTSIDE) {
+    if (semver.satisfies(train, range, { includePrerelease: true })) fail('peerDependencies', `${name} admits ${train}, which is outside the documented support`)
+  }
+  if (pinned !== undefined && !semver.valid(pinned)) fail('devDependencies', `${name} must pin one exact, tested version, not \`${pinned}\``)
 }
+for (const file of ['docs/harness-compatibility.md', 'docs/harness-compatibility.zh.md']) {
+  const text = read(file)
+  const unlisted = VERIFIED_TRAINS.filter((train) => !text.includes(`\`${train}\``))
+  if (unlisted.length > 0) fail(file, `does not list verified trains: ${unlisted.join(', ')}`)
+}
+notes.push(`peer ranges: ${VERIFIED_TRAINS.length} verified trains admitted under both semver rules; ${OUTSIDE.length} outside builds refused`)
 
 // 5. Storefronts read this file; a path that does not resolve is a 404 in the
 //    market listing, which nobody looking at this repo would ever notice.
