@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 拿得到 | `ctx.fs` `ctx.tools` `ctx.attachments` `ctx.webServer` `ctx.llm`、`node:` 内建 | `ctx.slots` `ctx.locale` `ctx.sessions`、DOM |
 | 负责 | 解析路径、签名 URL、转换文档、提交附件、决定 `inContext` | 把一个已经settled的工具块渲染成卡片 |
-| 禁止 | import 任何 UI 或传输类型 | 值导入除 react 外的任何外部包（[纯度门](../AGENTS.md)） |
+| 禁止 | import 任何 UI 或传输类型 | 值导入 react、react/jsx-runtime、react-dom（只用 createPortal）以外的任何外部包（[纯度门](../AGENTS.md)） |
 
 `src/contract.ts` 是两边唯一共享的模块，因此它**不引 `@deepseek-ai/schemastery`，也不引任何 `node:` 内建**——引了就会被内联进客户端 bundle 或直接把它打崩。Host 的 schema 建在它之上，放 `src/settings.ts`。
 

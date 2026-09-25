@@ -67,9 +67,10 @@ jobs:
 
             1. Host and browser halves compile under separate tsconfigs. A new
                source file must land in the right `include`.
-            2. `src/client/**` may only value-import react and relative repo
-               files. Anything else breaks at plugin activation in the browser,
-               where no test would see it.
+            2. `src/client/**` may only value-import react, react/jsx-runtime,
+               react-dom (createPortal only) and relative repo files. Anything
+               else breaks at plugin activation in the browser, where no test
+               would see it.
             3. `inject` may only name services every target composition has. A
                never-activating entry is a hard boot failure, not a graceful skip.
 

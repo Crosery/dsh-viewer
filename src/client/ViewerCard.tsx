@@ -13,8 +13,9 @@
  * source a shipped `read_image` result has at all.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { READ_IMAGE_TOOL, classifyPath, formatBytes, type DisplayValue, type ViewerKind } from '../contract.ts'
 import { cardModel, type CardState } from './card-model.ts'
@@ -128,18 +129,102 @@ function useMediaSource(value: DisplayValue, load: ViewerCardInjected['loadAttac
   return { src: resolved, failed, pending: resolved === undefined && !failed, retry }
 }
 
-/** Full-viewport preview of one image; click anywhere or press Escape to close. */
-function Lightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+/**
+ * Selector for the dialog's tab stops. Mirrors what a browser makes focusable,
+ * minus the disabled controls, so Tab containment keeps working if the preview
+ * ever grows a second control.
+ */
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Full-viewport preview of one image; click the backdrop, the close button, or
+ * press Escape to close.
+ *
+ * Portalled to `body` because a card inside a transformed or `contain`ed scroll
+ * container would otherwise clip a `position: fixed` overlay to that container.
+ * The theme tokens are defined on `body`, so the portal still inherits them.
+ */
+function Lightbox({ src, alt, onClose, closeLabel }: {
+  src: string
+  alt: string
+  onClose: () => void
+  closeLabel: string
+}) {
+  const panel = useRef<HTMLDivElement>(null)
+  const close = useRef<HTMLButtonElement>(null)
+  // Where focus was before the dialog opened. The overlay is portalled to
+  // `body`, so the card underneath is not an ancestor the browser could
+  // restore to on its own — the return trip has to be made explicitly.
+  const origin = useRef<HTMLElement | null>(null)
+
   useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('keydown', onKey) }
+    origin.current = document.activeElement as HTMLElement | null
+    close.current?.focus()
+    return () => {
+      const back = origin.current
+      if (back?.isConnected) back.focus()
+    }
+  }, [])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        // Captured on `window` and stopped there: Escape also closes the
+        // harness's own panels and cancels a running turn, and one key press
+        // must close only the topmost thing on screen.
+        event.preventDefault()
+        event.stopPropagation()
+        onClose()
+        return
+      }
+      if (event.key !== 'Tab') return
+      // `aria-modal` alone does not hold Tab: the rest of the page is still in
+      // the document behind the overlay, so focus would walk out of sight.
+      const items = panel.current?.querySelectorAll<HTMLElement>(FOCUSABLE)
+      if (items === undefined || items.length === 0) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (first === undefined || last === undefined) return
+      const active = document.activeElement
+      const outside = active === null || panel.current?.contains(active) !== true
+      const atEdge = event.shiftKey ? active === first : active === last
+      if (!outside && !atEdge) return
+      event.preventDefault()
+      if (event.shiftKey) last.focus()
+      else first.focus()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => { window.removeEventListener('keydown', onKey, true) }
   }, [onClose])
-  return (
-    // eslint-disable-next-line -- the overlay is a click target by design; Escape covers the keyboard path.
-    <div className={`${CSS}-lightbox`} role="presentation" onClick={onClose}>
-      <img className={`${CSS}-lightboxImage`} src={src} alt={alt} />
-    </div>
+
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
+    <div ref={panel} className={`${CSS}-lightbox`} role="dialog" aria-modal="true" aria-label={alt} onClick={onClose}>
+      <img
+        className={`${CSS}-lightboxImage`}
+        src={src}
+        alt={alt}
+        onClick={(event) => event.stopPropagation()}
+      />
+      <button
+        ref={close}
+        type="button"
+        className={`${CSS}-lightboxClose`}
+        aria-label={closeLabel}
+        title={closeLabel}
+        onClick={(event) => {
+          // The backdrop would close too; one close per click.
+          event.stopPropagation()
+          onClose()
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z" />
+        </svg>
+      </button>
+    </div>,
+    document.body,
   )
 }
 
@@ -168,7 +253,7 @@ function Viewer({ value, injected, t }: { value: DisplayValue; injected: ViewerC
           <button type="button" className={`${CSS}-imageButton`} title={t('action.open')} onClick={() => { setZoomed(true) }}>
             <img className={`${CSS}-image`} src={src} alt={label} loading="lazy" />
           </button>
-          {zoomed && <Lightbox src={src} alt={label} onClose={closeZoom} />}
+          {zoomed && <Lightbox src={src} alt={label} onClose={closeZoom} closeLabel={t('action.close')} />}
         </>
       )
     case 'video':

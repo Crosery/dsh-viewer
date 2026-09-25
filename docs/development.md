@@ -10,7 +10,7 @@ The three always-on constraints live in [AGENTS.md](../AGENTS.md). This page is 
 | --- | --- | --- |
 | Has | `ctx.fs` `ctx.tools` `ctx.attachments` `ctx.webServer` `ctx.llm`, `node:` builtins | `ctx.slots` `ctx.locale` `ctx.sessions`, the DOM |
 | Owns | resolving paths, signing URLs, converting documents, committing attachments, deciding `inContext` | turning one settled tool block into a card |
-| Never | imports a UI or transport type | value-imports anything but react ([purity gate](../AGENTS.md)) |
+| Never | imports a UI or transport type | value-imports anything but react, react/jsx-runtime, react-dom (createPortal only) ([purity gate](../AGENTS.md)) |
 
 `src/contract.ts` is the only module both halves share, which is why it imports **neither `@deepseek-ai/schemastery` nor any `node:` builtin** — either would be inlined into the client bundle or break it outright. The host schema is built on top of it in `src/settings.ts`.
 
