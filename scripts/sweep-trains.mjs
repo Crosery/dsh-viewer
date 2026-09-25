@@ -37,12 +37,13 @@
  * manager applies; both must hold.
  */
 
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import semver from 'semver'
+import { absence, harnessPeers, HARNESS, installTrain, refusals, repointManifest, run, tail, versionsOf } from './harness-lib.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const args = process.argv.slice(2)
@@ -54,71 +55,17 @@ const work = resolve(option('--work') ?? join(tmpdir(), 'dsh-viewer-sweep'))
 const reinstall = args.includes('--reinstall')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const harnessDeps = Object.keys(pkg.devDependencies).filter((name) => name.startsWith('@deepseek-ai/dsh-'))
-const peers = Object.entries(pkg.peerDependencies ?? {}).filter(([name]) => name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-'))
-
-/** `npm view <spec> <field> --json`, or `undefined` when npm has nothing. */
-function view(spec, field) {
-  try {
-    const out = execFileSync('npm', ['view', spec, field, '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-    return out.trim() === '' ? undefined : JSON.parse(out)
-  } catch {
-    return undefined
-  }
-}
-
-const published = new Map()
-/** Every published version of one package. */
-function versionsOf(name) {
-  if (!published.has(name)) {
-    const list = view(name, 'versions')
-    published.set(name, Array.isArray(list) ? list : typeof list === 'string' ? [list] : [])
-  }
-  return published.get(name)
-}
-
-/** Why a package is absent at a version: it did not exist yet, or upstream skipped it. */
-function absence(name, version) {
-  const all = versionsOf(name)
-  if (all.length === 0) return 'never published'
-  return all.some((v) => semver.lt(v, version)) ? 'skipped by upstream' : 'predates'
-}
-
-/** Last lines of a command's combined output, for the report. */
-function tail(text, lines = 6) {
-  return text.trim().split('\n').slice(-lines).join('\n')
-}
-
-/** Run one command in a scratch copy; returns `{ ok, output }`. */
-function run(cwd, command, argv, extraEnv = {}) {
-  const result = spawnSync(command, argv, { cwd, encoding: 'utf8', env: { ...process.env, ...extraEnv }, maxBuffer: 64 * 1024 * 1024 })
-  return { ok: result.status === 0, output: `${result.stdout ?? ''}${result.stderr ?? ''}` }
-}
+const peers = harnessPeers(pkg)
 
 /** The first TypeScript diagnostics in a typecheck's output. */
 function diagnostics(output) {
   return output.split('\n').filter((line) => /error TS\d+/.test(line)).slice(0, 4).join('\n')
 }
 
-/** Whether `@deepseek-ai/dsh` itself resolves at a version, with nothing of ours involved. */
-function bareHarnessInstalls(version) {
-  const dir = join(work, '_bare', version)
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'bare', version: '0.0.0', private: true }))
-  const result = run(dir, 'npm', ['install', '--dry-run', '--ignore-scripts', '--no-audit', '--no-fund', `@deepseek-ai/dsh@${version}`])
-  return { ok: result.ok, output: result.output }
-}
-
 /** Prepare (or reuse) the scratch copy for one version; returns the install outcome. */
 function prepare(version) {
   const dir = join(work, version)
-  const manifest = structuredClone(pkg)
-  for (const name of harnessDeps) manifest.devDependencies[name] = version
-  // The train's own cordis and schemastery, so a train that moved them is
-  // compiled against what it actually ships.
-  const harnessDependencies = view(`@deepseek-ai/dsh@${version}`, 'dependencies') ?? {}
-  for (const name of ['@deepseek-ai/cordis', '@deepseek-ai/schemastery']) {
-    if (typeof harnessDependencies[name] === 'string') manifest.devDependencies[name] = harnessDependencies[name]
-  }
+  const { manifest } = repointManifest(pkg, version)
   const wanted = JSON.stringify(manifest.devDependencies)
   const stamp = join(dir, '.sweep-installed')
   mkdirSync(dir, { recursive: true })
@@ -128,47 +75,17 @@ function prepare(version) {
     cpSync(join(root, entry), join(dir, entry), { recursive: true })
   }
   for (const file of ['tsconfig.json', 'tsconfig.client.json', 'cordis.patch.yml']) cpSync(join(root, file), join(dir, file))
-  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
   if (!reinstall && existsSync(stamp)) {
-    const [pins, via = 'peer graph'] = readFileSync(stamp, 'utf8').split('\n')
-    if (pins === wanted) return { ok: true, dir, reused: true, via, output: '' }
-  }
-  const fresh = () => {
-    rmSync(join(dir, 'node_modules'), { recursive: true, force: true })
-    rmSync(join(dir, 'package-lock.json'), { force: true })
-  }
-  fresh()
-  let result = run(dir, 'npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'])
-  let via = 'peer graph'
-  if (!result.ok && /ERESOLVE/.test(result.output)) {
-    // Early trains declare caret peers (`^0.1.1-rc.1`), so npm's automatic
-    // peer install drags in a LATER prerelease whose own peers then conflict
-    // with the pinned one. The harness never runs that graph: it pins every
-    // package exactly. Install the train's own `@deepseek-ai/dsh` instead and
-    // let its exact pins provide the peers, which is the graph a user runs.
-    fresh()
-    const shipped = structuredClone(manifest)
-    shipped.devDependencies['@deepseek-ai/dsh'] = version
-    // Legacy peer mode installs no peers at all, and some harness packages
-    // reach others only as peers (dsh-tools → dsh-scope). Pin every such
-    // harness peer the train published at exactly this version.
-    for (const name of harnessDeps) {
-      for (const peer of Object.keys(view(`${name}@${version}`, 'peerDependencies') ?? {})) {
-        if (!peer.startsWith('@deepseek-ai/dsh') || peer in shipped.devDependencies) continue
-        if (versionsOf(peer).includes(version)) shipped.devDependencies[peer] = version
-      }
-    }
-    writeFileSync(join(dir, 'package.json'), JSON.stringify(shipped, null, 2) + '\n')
-    const second = run(dir, 'npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps'])
-    if (second.ok) {
-      result = second
-      via = `@deepseek-ai/dsh@${version} graph (the peer graph hit ERESOLVE)`
-    } else {
-      result = { ok: false, output: `${result.output}\n--- retry through @deepseek-ai/dsh@${version}:\n${second.output}` }
+    const [pins, via = 'peer graph', installed] = readFileSync(stamp, 'utf8').split('\n')
+    if (pins === wanted) {
+      // Keep the manifest the reused install was made from.
+      writeFileSync(join(dir, 'package.json'), installed ?? JSON.stringify(manifest, null, 2) + '\n')
+      return { ok: true, dir, reused: true, via, output: '' }
     }
   }
-  if (result.ok) writeFileSync(stamp, `${wanted}\n${via}`)
-  return { ...result, dir, reused: false, via }
+  const result = installTrain(dir, manifest, version)
+  if (result.ok) writeFileSync(stamp, `${wanted}\n${result.via}\n${JSON.stringify(result.manifest)}`)
+  return { ...result, dir, reused: false }
 }
 
 const requested = option('--versions')?.split(',').map((v) => v.trim()).filter(Boolean)
@@ -178,12 +95,8 @@ mkdirSync(work, { recursive: true })
 const rows = []
 for (const version of versions) {
   const row = { version, admitted: true, refusedBy: [], missing: [], outcome: '', host: '', client: '', tests: '', detail: '' }
-  for (const [name, range] of peers) {
-    if (!semver.satisfies(version, range, { includePrerelease: true }) || !semver.satisfies(version, range)) {
-      row.admitted = false
-      row.refusedBy.push(name)
-    }
-  }
+  row.refusedBy = refusals(version, peers).map((r) => r.name)
+  row.admitted = row.refusedBy.length === 0
   row.missing = harnessDeps.filter((name) => !versionsOf(name).includes(version)).map((name) => `${name.replace('@deepseek-ai/', '')} (${absence(name, version)})`)
   process.stderr.write(`[sweep] ${version}: `)
 
@@ -198,11 +111,9 @@ for (const version of versions) {
 
   const install = prepare(version)
   if (!install.ok) {
-    const eresolve = /ERESOLVE/.test(install.output)
-    const bare = eresolve ? bareHarnessInstalls(version) : undefined
-    row.outcome = eresolve && bare?.ok === false ? 'incomplete upstream' : 'fail'
-    row.detail = eresolve
-      ? `ERESOLVE installing the repointed graph; bare @deepseek-ai/dsh@${version} ${bare?.ok ? 'installs' : 'fails too'}: ${tail(install.output, 3).replace(/\n/g, ' ')}`
+    row.outcome = install.incomplete ? 'incomplete upstream' : 'fail'
+    row.detail = /ERESOLVE/.test(install.output)
+      ? `ERESOLVE installing the repointed graph, also through ${HARNESS}@${version}: ${tail(install.output, 3).replace(/\n/g, ' ')}`
       : `install failed: ${tail(install.output, 3).replace(/\n/g, ' ')}`
     process.stderr.write(`${row.outcome}\n`)
     rows.push(row)
