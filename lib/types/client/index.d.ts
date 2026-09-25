@@ -17,6 +17,9 @@
  * plugin's `apply`, and cordis answers a failed apply by unloading the whole
  * client half — so one bad key must never be able to take the rest with it.
  *
+ * From 0.1.6 a third registration keeps displayed files visible after their
+ * turn completes and folds; see `turn-tail.ts`.
+ *
  * The card's only Host dependencies are durable image bytes — through the
  * chat's own loader from 0.1.7, through `ctx.sessions` before — and everything
  * else (video, audio, PDF, HTML) arrives over the Host's signed asset route as an
@@ -28,9 +31,11 @@ export type { CardState } from './card-model.ts';
 export { cardModel, argumentPathOf, contentImageOf } from './card-model.ts';
 export type { ViewerCardInjected, ViewerCardOwner } from './ViewerCard.tsx';
 export { imageLoaderFor, type OwnerImageLoader, type ViewerSources } from './sources.ts';
+export type { ViewerTailInjected } from './ViewerTail.tsx';
 export type { ViewerKey } from './locales.ts';
 export { isDesktopShell, mediaSourceFor } from './host.ts';
 export { READ_IMAGE_PRIORITY, TURN_TAIL_SLOT, VIEWER_NS, contribute, turnTailJoinable } from './registration.ts';
+export { VIEWER_TURN_DATA, displayedValueOf, foldSourceOf, foldsCompletedTurns, tailDisplays, turnStaysOpen, viewerTurnDefinition, } from './turn-tail.ts';
 declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface LocaleNamespaceMap {
         /** The viewer card's copy. */

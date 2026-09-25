@@ -96,6 +96,9 @@ const SHEET = `
   outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px;
 }
 
+/* A completed turn's displays, below its closing reply (see turn-tail.ts). */
+.dshview-tail { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 8px; min-width: 0; }
+
 .dshview-lightbox {
   position: fixed; inset: 0; z-index: 2000; display: flex;
   align-items: center; justify-content: center;

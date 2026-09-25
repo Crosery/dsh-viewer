@@ -17,6 +17,9 @@
  * plugin's `apply`, and cordis answers a failed apply by unloading the whole
  * client half — so one bad key must never be able to take the rest with it.
  *
+ * From 0.1.6 a third registration keeps displayed files visible after their
+ * turn completes and folds; see `turn-tail.ts`.
+ *
  * The card's only Host dependencies are durable image bytes — through the
  * chat's own loader from 0.1.7, through `ctx.sessions` before — and everything
  * else (video, audio, PDF, HTML) arrives over the Host's signed asset route as an
@@ -42,17 +45,25 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import { DISPLAY_TOOL, READ_IMAGE_TOOL } from '../contract.ts'
 import { ViewerCard, type ViewerCardInjected } from './ViewerCard.tsx'
+import { ViewerTail, type ViewerTailInjected } from './ViewerTail.tsx'
 import { en, zh, type ViewerKey } from './locales.ts'
 import { installViewerStyles } from './styles.ts'
-import { READ_IMAGE_PRIORITY, VIEWER_NS, contribute, type LooseSlots } from './registration.ts'
+import { foldSourceOf, viewerTurnDefinition } from './turn-tail.ts'
+import {
+  READ_IMAGE_PRIORITY, TURN_TAIL_SLOT, VIEWER_NS, contribute, turnTailJoinable, type LooseSlots,
+} from './registration.ts'
 
 export type { CardState } from './card-model.ts'
 export { cardModel, argumentPathOf, contentImageOf } from './card-model.ts'
 export type { ViewerCardInjected, ViewerCardOwner } from './ViewerCard.tsx'
 export { imageLoaderFor, type OwnerImageLoader, type ViewerSources } from './sources.ts'
+export type { ViewerTailInjected } from './ViewerTail.tsx'
 export type { ViewerKey } from './locales.ts'
 export { isDesktopShell, mediaSourceFor } from './host.ts'
 export { READ_IMAGE_PRIORITY, TURN_TAIL_SLOT, VIEWER_NS, contribute, turnTailJoinable } from './registration.ts'
+export {
+  VIEWER_TURN_DATA, displayedValueOf, foldSourceOf, foldsCompletedTurns, tailDisplays, turnStaysOpen, viewerTurnDefinition,
+} from './turn-tail.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -193,6 +204,11 @@ export const inject = ['slots', 'locale']
 
 export const name = '@crosery/dsh-viewer'
 
+/** The Conversation registry the turn tail's data comes from (0.1.6+). */
+interface ConversationLike {
+  events?: { register?: (definition: unknown) => () => void }
+}
+
 /**
  * Client plugin body: own the URL cache and register the card under both keys.
  * @param ctx - client cordis context.
@@ -226,4 +242,31 @@ export function apply(ctx: ClientContext): void {
     locale: VIEWER_NS,
     inject: injected,
   }, ViewerCard))
+
+  // The turn tail needs both of its surfaces or neither: the data comes from a
+  // Conversation Definition, and the list entry that renders it has nothing to
+  // show without one. `uiConversation` is not required — the nested injection
+  // simply never runs on a train without it.
+  const folds = foldSourceOf(() => ctx.get('configForms' as never))
+  ctx.inject(['uiConversation'], (scoped) => {
+    const conversation = (scoped as unknown as { uiConversation?: ConversationLike }).uiConversation
+    const register = conversation?.events?.register
+    if (typeof register !== 'function') return
+    try {
+      register.call(conversation?.events, viewerTurnDefinition)
+    } catch (error: unknown) {
+      console.warn('[dsh-viewer] could not register the turn-tail data; completed turns keep their displays folded', error)
+      return
+    }
+    const scopedSlots = (scoped as unknown as { slots: LooseSlots }).slots
+    contribute(scopedSlots, TURN_TAIL_SLOT, () => {
+      if (!turnTailJoinable(scopedSlots.spec?.(TURN_TAIL_SLOT))) return () => {}
+      return scopedSlots.register({
+        name: TURN_TAIL_SLOT,
+        id: name,
+        locale: VIEWER_NS,
+        inject: (sessionId: SessionId): ViewerTailInjected => ({ ...injected(sessionId), folds }),
+      }, ViewerTail)
+    })
+  })
 }
