@@ -70,11 +70,12 @@ test('the settings schema defaults to superseding read_image', () => {
 
 /** A ctx double capturing the two listeners the module registers. */
 function fakeCtx() {
-  const on: Record<string, ((payload?: never) => void)[]> = {}
-  const ctx = { on: (event: string, fn: (payload?: never) => void) => { (on[event] ??= []).push(fn) } } as never
+  const on: Record<string, ((payload?: never) => unknown)[]> = {}
+  const ctx = { on: (event: string, fn: (payload?: never) => unknown) => { (on[event] ??= []).push(fn) } } as never
   return {
     ctx,
-    created: (agent: unknown) => { for (const fn of on['agent/created'] ?? []) fn({ agent } as never) },
+    /** Publish one agent; returns what each listener returned. */
+    created: (agent: unknown) => (on['agent/created'] ?? []).map(fn => fn({ agent } as never)),
     toolsChanged: () => { for (const fn of on['tools/change'] ?? []) fn(undefined as never) },
   }
 }
@@ -138,4 +139,14 @@ test('the restriction stands down when the setting is off', () => {
   h.created(fakeAgent({ now: true }, denied))
   h.toolsChanged()
   deepEqual(denied, [])
+})
+
+test('the agent/created listener returns undefined, as the 0.1.6+ serial event requires', () => {
+  // 0.1.6 made `agent/created` a serial event awaited by agent creation, typed
+  // `undefined | Promise<undefined>` (issue #10). A listener returning anything
+  // else would be a type error there and a stray value at runtime.
+  const h = fakeCtx()
+  applySupersedeReadImage(h.ctx, () => true)
+  deepEqual(h.created(fakeAgent({ now: true }, [])), [undefined])
+  deepEqual(h.created(fakeAgent({ now: false }, [])), [undefined], 'also on the swallowed-failure path')
 })
