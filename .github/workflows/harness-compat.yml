@@ -22,8 +22,10 @@
 #   desktop             what the desktop app ships now,  on PRs (not required),
 #                       read from both update feeds       daily, gates releases
 #   latest|next|alpha   npm dist-tags                    daily
-#   sweep               every published version from     weekly; its types, tests
-#                       the lowest the peers admit        and admission gate releases
+#   sweep               every published version from     weekly and in the release
+#                       the lowest the peers admit;       gate; smoke on the floor,
+#                                                         each tuple's newest version
+#                                                         and every dist-tag
 #   desktop-bytes       the same smoke on the desktop    daily, gates releases
 #                       zip itself (macOS job below)
 #

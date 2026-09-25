@@ -7,8 +7,9 @@
 # Nothing is attached or published until `gate` passes: the tag's own tree
 # must install, activate and be served on its pinned train, on the floor, on
 # the version the desktop app ships today (as the npm Web app and as the
-# desktop zip itself), and must typecheck, test and be admitted on every
-# published harness version the sweep finds.
+# desktop zip itself) and on the newest version of every tuple, and must
+# typecheck, test and be admitted on every published harness version the
+# sweep finds.
 name: Release
 
 on:
@@ -34,7 +35,7 @@ jobs:
     uses: ./.github/workflows/harness-compat.yml
     with:
       cells: pinned,floor,desktop,sweep
-      smoke: none
+      smoke: heads
       desktop-bytes: true
       ref: ${{ inputs.tag || github.ref }}
 
