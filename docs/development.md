@@ -8,7 +8,7 @@ The three always-on constraints live in [AGENTS.md](../AGENTS.md). This page is 
 
 | | Host (`src/`) | Browser (`src/client/`) |
 | --- | --- | --- |
-| Has | `ctx.fs` `ctx.tools` `ctx.attachments` `ctx.webServer` `ctx.llm`, `node:` builtins | `ctx.slots` `ctx.locale` `ctx.sessions`, the DOM |
+| Has | `ctx.fs` `ctx.tools` `ctx.attachments` `ctx.webServer` `ctx.llm` `ctx.officeToPdf` (the last four optional), `node:` builtins | `ctx.slots` `ctx.locale`, the DOM; optionally `ctx.sessions`, `ctx.uiConversation`, `ctx.configForms` and the owner's `loadImage`/`openFile` |
 | Owns | resolving paths, signing URLs, converting documents, committing attachments, deciding `inContext` | turning one settled tool block into a card |
 | Never | imports a UI or transport type | value-imports anything but react, react/jsx-runtime, react-dom (createPortal only) ([purity gate](../AGENTS.md)) |
 
@@ -40,6 +40,13 @@ The field-name constant and the interface go in `src/contract.ts`, the schema in
 3. **An image block in `content`** — the shipped `read_image` writes no metadata; its picture exists only in the content blocks.
 
 Any of the three can receive a shape this build never wrote (an old log, a truncated window, fields written by a newer version), so every read narrows defensively and **returns `undefined` to degrade the card rather than throwing** — a throwing entry is removed from its slot, taking every viewer card in the conversation with it.
+
+## Living beside the harness's own views
+
+- **Every slot registration is isolated** (`contribute` in `src/client/registration.ts`). A registration that throws inside `slots.inject` while its slot is declared rethrows into `apply`, and cordis then unloads the whole client half — that is how v0.1.1's `read_image` collision on 0.1.7 took the `display_file` card down with it.
+- **`read_image` is registered at priority 1.** The slot core refuses a second entry for a key at an occupied priority and renders the lowest one, so the harness's own `read_image` view (0.1.3+) wins and this card fills in only where there is none. `tests/client-registration.test.ts` checks this against the real `SlotCore` of whichever train is installed.
+- **The turn tail** (`src/client/turn-tail.ts`, `ViewerTail.tsx`) is the supported way out of the completed-turn fold: a Conversation Definition publishes the turn's `display_file` results as Turn data, and a `conversation.chat.turnTail` list entry renders them. It is joined only where both surfaces exist in that shape (0.1.6+), and renders nothing where the rows are visible anyway.
+- **Desktop is detected by capability** (`src/client/host.ts`: the `dsh-app:` scheme or `__DSH_HOST_PATHS__`), never by user agent. There, the link that opens a new tab is replaced by the owner's `openFile` (the sidebar preview), because the window silently denies app-URL tabs, and video/audio load from `__DSH_TRANSPORT__.streamBaseUrl` (`mediaSourceFor`), because media first loaded through the `dsh-app:` forwarder is not seekable. PDF frames work in the desktop window as in a browser (verified on 0.1.7-rc.2).
 
 ## Two counter-intuitive rendering facts
 

@@ -30,5 +30,5 @@ npm run build && grep -o 'require("[^"]*")' lib/client.js | sort -u
 ## 环境
 
 - Node `^22.19 || >=24`。harness 在奇数主版本上直接启动失败。
-- LibreOffice 只有 `document` 类需要（`docx`/`xlsx`/`pptx` 等）。没装时其余五类照常工作，文档卡片会说明缺什么。
-- **核 API 对着本机已安装的类型声明**：`~/.bun/install/global/node_modules/@deepseek-ai/dsh-*/lib/types/*.d.ts`。类型声明与实测优先于任何文档，本文件包含在内。
+- LibreOffice 只有 `document` 类需要（`docx`/`xlsx`/`pptx` 等），而且 0.1.6-alpha.2 起 harness 自带的 `officeToPdf` 服务会先接手 `doc`/`docx`/`xls`/`xlsx`/`ppt`/`pptx`。两者都没有时其余五类照常工作，文档卡片会说明缺什么。
+- **核 API 对着类型声明**：devDependencies 钉在 0.1.7-rc.2（`node_modules/@deepseek-ai/dsh-*/lib/types`），最低线 0.1.1-rc.2 用 `node scripts/sweep-trains.mjs --versions 0.1.1-rc.2` 在临时副本里复核；全部已发布版本同一个脚本不带参数跑。源码必须同时在两条线上编译：只用结构类型和特性探测，不静态值导入任何一条线上缺失的符号。类型声明与实测优先于任何文档，本文件包含在内。

@@ -14,7 +14,7 @@
 
 ## What it does
 
-The harness ships `read_image`, whose job is to put a picture into **model context**. It refuses on a text-only route, it handles four raster formats, and the built-in web client draws no card for it — so the human in front of the screen sees one line of text.
+The harness ships `read_image`, whose job is to put a picture into **model context**. It refuses on a text-only route, it handles four raster formats, and up to harness 0.1.2 the built-in web client draws no card for it — so the human in front of the screen sees one line of text. (From 0.1.3 the harness draws its own `read_image` view, and this plugin's card for that key steps aside.)
 
 This plugin inverts that. Its job is to put a file **on your screen**. A text-only model route is a normal outcome, not a refusal, and every medium a browser can play is in scope.
 
@@ -61,13 +61,15 @@ The repository ships its built halves, so this needs no build step and no `allow
 dsh plugin --profile web add https://github.com/Crosery/dsh-viewer/releases/latest/download/dsh-viewer.tgz
 ```
 
-Office rendering additionally needs LibreOffice on `PATH` (or the macOS app bundle):
+On the desktop app the `dsh plugin` CLI cannot manage the desktop profile; open **Plugins → Add plugin** and paste the release tarball URL above. Upgrading an installed plugin there needs an app restart.
+
+Office rendering needs a converter. From harness 0.1.6-alpha.2 on — the desktop app included — the harness's own bundled converter handles `doc` `docx` `xls` `xlsx` `ppt` `pptx` with nothing else installed. `rtf` and the OpenDocument trio, and every format on older trains, need LibreOffice on `PATH` (or the macOS app bundle):
 
 ```sh
 brew install --cask libreoffice     # macOS
 ```
 
-Without it, every other format still works and a document card says exactly what is missing.
+Without a converter, every other format still works and a document card says exactly what is missing.
 
 ## How the bytes reach the page
 
@@ -77,7 +79,9 @@ Two channels, in priority order.
 
 **The durable attachment store** is the fallback. Images only, but it is irreplaceable in two cases: a filesystem backend that exposes no local path (a remote workspace), and rendering a shipped `read_image` result, which has an attachment and no URL.
 
-They are not redundant: a raster on a vision route still goes through the attachment store, because that is the only way it also reaches the model.
+They are not redundant: a raster on a vision route still goes through the attachment store, because that is the only way it also reaches the model. From 0.1.7 durable images are read through the chat's own loader, which shares one read per image across the session.
+
+In the desktop app, video and audio load from the Host's loopback address (`__DSH_TRANSPORT__.streamBaseUrl`) instead of the window's `dsh-app:` origin: the app's protocol forwarder drops `Content-Length`, and Chromium then treats the first load of a media URL as an unseekable stream. The route authorizes by signature, so nothing else changes.
 
 ## Security
 
@@ -90,7 +94,7 @@ The route **never accepts a path from the browser.** At tool time the host signs
 
 ## Configuration
 
-Settings namespace `crosery-viewer`. Every default is the behaviour the plugin exists to provide; each flag gives one piece back.
+Four switches. Every default is the behaviour the plugin exists to provide; each flag gives one piece back.
 
 | Field | Default | Turning it off |
 | --- | --- | --- |
@@ -99,15 +103,22 @@ Settings namespace `crosery-viewer`. Every default is the behaviour the plugin e
 | `feedModel` | `true` | images are shown only, never added to model context |
 | `supersedeReadImage` | `true` | the shipped `read_image` becomes visible to the model again |
 
-Edit `$DSH_HOME/settings.yaml` — hot-reloaded, no restart.
+Where to edit them depends on the harness train:
+
+- **Up to 0.1.5**: the `crosery-viewer` section of `$DSH_HOME/settings.yaml` — hot-reloaded, no restart.
+- **0.1.7 and later** (web and desktop): `settings.yaml` no longer exists. **Settings** generates a form for the plugin entry `viewer`, each switch with its description, and saving writes the values into the profile patch. The one-time import of an old `settings.yaml` maps sections to entry ids by name, so a `crosery-viewer` section is **not** carried over (it stays behind in `settings.yaml.imported`) — set any non-default value again on the `viewer` entry.
 
 ## Design notes
 
 **`read` on binary media is not an error.** The shipped filesystem provider samples the file head and throws `FS_NOT_TEXT` on a NUL byte, so `read` aimed at a PNG paints a red failure row with or without this plugin — for a file that exists and is one call away from being on screen. Neither obvious correction removes it: a `tools/pre-execute` denial materializes its own error, and a `tools/post-execute` decision cannot replace the value of a failed result. So the correction runs in the `tools/execute` around-dispatch waterfall and never calls `next()` — no filesystem I/O happens at all, and the authored success is re-projected through the owning tool's own `render` and `presentationMeta`, which replaces the persisted read metadata too. The result is an ordinary successful read whose one line points at `display_file`.
 
+**Guidance that divides the work.** A short system-prompt section tells the model when to call `display_file`. It sits right after the shipped read guidance — order 101 up to 0.1.5, `getSectionOrder('TOOL_READ') + 1` from 0.1.7 — and is empty for an agent that cannot call the tool. Where the harness also offers `present`, it leaves deliverables to `present` and pictures inside an answer to markdown images, so one file is never displayed, embedded and presented at once.
+
 **One image entry point.** `read_image` and `display_file` overlap on exactly one thing — putting a raster into model context — and a model offered both uses both. Measured on a real 2.2 MB PNG: the same image entered context twice in one turn. `display_file` is a strict superset, so `read_image` is hidden per agent via `tools.restrict()` on `agent/created`, retried on `tools/change` because the shipped tool registers behind an async service injection.
 
-**Nested `run_code` calls get no `presentationMeta`.** The registry projects it only for top-level calls, so a `display_file` invoked from inside `run_code` would render as a bare header. The model-facing envelope therefore carries `<media>`, `<bytes>` and `<asset>` elements, and the card rebuilds from its own envelope when metadata is absent — validated through the same narrowing the replay path uses.
+**Nested `run_code` calls get no `presentationMeta`.** The registry projects it only for top-level calls, so a `display_file` invoked from inside `run_code` would render as a bare header. The model-facing envelope therefore carries `<media>`, `<bytes>` and `<asset>` elements, and the card rebuilds from its own envelope when metadata is absent — validated through the same narrowing the replay path uses. The image of such a call reaches model context once: the code-mode transport already defers every child result that carries an image block, so the tool does not defer it again.
+
+**Completed turns keep their files on screen.** From 0.1.6 the chat folds a completed turn's tool rows behind one "used N s" disclosure, and 0.1.7 does it by default. The plugin therefore also contributes to the chat's turn tail — the list between a turn's closing reply and its action row, where the harness's own delivery cards live — and shows that turn's displayed files there once the turn completes. The tail stands down wherever the rows are visible anyway: the `verbose` transcript view, and a turn that is still running, was aborted, or failed.
 
 **A PDF iframe must not be sandboxed.** `sandbox` without `allow-same-origin` gives an opaque origin, and Chrome's PDF viewer refuses to run there, showing "This page has been blocked by Chrome". Local HTML is the opposite case and keeps the sandbox.
 
@@ -139,6 +150,9 @@ Built and tested against the newest **coherent** harness train, `next` = `0.1.1-
 - Object URLs are revoked at page unload, bounding held blobs by the number of distinct attachments displayed in one page lifetime.
 - On a remote workspace with no `processPath`, non-image media have no channel and the card says so.
 - No transcoding: a codec the browser refuses (ProRes in a `.mov`) falls back to the `<video>` fallback text.
+- In the desktop app, "Open in a new tab" becomes **Preview in sidebar** (the harness's own preview, PDF.js for PDFs): the desktop window silently refuses new tabs for app URLs. Everything inside the card — images, players, PDF and document frames — renders the same as on the web.
+- The turn tail needs the list-shaped tail of 0.1.6+. On 0.1.2–0.1.5 a folded ("compact") completed turn keeps its cards inside the fold; switch the transcript view to `normal` there to keep them open. On 0.1.6 the `normal` view shows a card both in the turn and in its tail.
+- If the user expands a folded turn, its displayed files appear twice — in their tool rows and in the tail — as the harness's own delivered files do.
 
 ## License
 

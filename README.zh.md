@@ -55,13 +55,15 @@ dsh plugin --profile web add github:crosery/dsh-viewer
 dsh plugin --profile web add https://github.com/Crosery/dsh-viewer/releases/latest/download/dsh-viewer.tgz
 ```
 
-Office 渲染额外需要 LibreOffice（`PATH` 上的 `soffice`，或 macOS 的应用包）：
+桌面版里 `dsh plugin` 命令行管不了桌面 profile：打开**插件 → 添加插件**，粘贴上面那条 release 压缩包地址即可。在那里升级已装插件需要重启应用。
+
+Office 渲染需要一个转换器。从 harness 0.1.6-alpha.2 起（包括桌面版），harness 自带的内置转换器就能处理 `doc` `docx` `xls` `xlsx` `ppt` `pptx`，什么都不用装。`rtf` 和三种 OpenDocument 格式，以及更早版本上的所有文档格式，仍需要 LibreOffice（`PATH` 上的 `soffice`，或 macOS 的应用包）：
 
 ```sh
 brew install --cask libreoffice
 ```
 
-没装也不影响其余格式，文档卡片会明确说明缺什么。
+没有转换器也不影响其余格式，文档卡片会明确说明缺什么。
 
 ---
 
@@ -72,7 +74,7 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 - 路由模型不声明 `image` 输入时，它直接拒绝；
 - 只认 PNG/JPEG/WebP/GIF；
 - 视频、音频、PDF、网页完全没有入口；
-- 而且**内置 Web 客户端不给它画卡片**——`read_image` 落在通用工具行上，人在屏幕前看到的只有一行 `Read image /path/to/a.png`。
+- 而且在 harness 0.1.2 及以前，**内置 Web 客户端不给它画卡片**——`read_image` 落在通用工具行上，人在屏幕前看到的只有一行 `Read image /path/to/a.png`。（0.1.3 起 harness 自带了 `read_image` 视图，本插件在这个 key 上的卡片会主动让位。）
 
 这个插件反过来：它存在的目的是把文件放到**用户屏幕上**。所以纯文本路由不是拒绝理由，非图片媒体也不是。
 
@@ -84,7 +86,7 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 | 视频 / 音频 | 无 | MP4/WebM/MOV/OGV，MP3/WAV/FLAC/OGG/M4A/Opus |
 | PDF / 网页 | 无 | 内嵌 iframe |
 | Office 全家桶 | 无 | docx/doc/rtf/odt、xlsx/xls/ods、pptx/ppt/odp（Host 转 PDF 后内嵌） |
-| Web 卡片 | 无（通用行） | 有（本插件同时接管 `read_image` 的卡片） |
+| Web 卡片 | 0.1.2 及以前无（通用行）；0.1.3 起有 | 有（在 harness 没有 `read_image` 视图的版本上，本插件也给它画卡片） |
 
 ## 两条字节通道
 
@@ -94,7 +96,9 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 
 **持久化附件**——`ctx.attachments` 那条老通道。只有图片，但它在两种情况下不可替代：文件系统后端不暴露本地路径（远程 workspace）时，以及渲染出厂 `read_image` 结果时（那份结果只有附件，没有 URL）。
 
-两条通道不是冗余：视觉路由上的 PNG 仍然要走附件，因为那是它进入模型上下文的唯一方式。
+两条通道不是冗余：视觉路由上的 PNG 仍然要走附件，因为那是它进入模型上下文的唯一方式。0.1.7 起持久化图片改由对话自带的加载器读取，同一会话里每张图只读一次。
+
+桌面版里，视频和音频从 Host 的回环地址（`__DSH_TRANSPORT__.streamBaseUrl`）加载，而不是窗口的 `dsh-app:` 源：应用的协议转发会去掉 `Content-Length`，Chromium 于是把媒体 URL 的第一次加载当成不可拖动的流。资源路由按签名授权，所以除了源以外什么都不变。
 
 ## 资源路由的安全边界
 
@@ -142,11 +146,11 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 
 所以纠正放在 **`tools/execute`（around-dispatch）**，并且**不调用 `next()`**：注定失败的读取根本不发生，一次文件 I/O 都没有。返回的自造结果会经过 `normalizeDispatchResult`，对成功结果它会**用本插件给的 value 重跑该工具自己的 `output.render` 和 `output.presentationMeta`**——于是持久化的 read 元数据也被替换掉，出厂 read 卡片照常渲染，只不过内容是一行指向 `display_file` 的说明，而且是一次**普通的成功读取**。
 
-配套还有一段系统提示词（order 101，紧跟出厂 `tool:read` 的 100）。`.html` **不在**纠正范围内：读 HTML 源码是正当的文本读取，显示它是另一个意图。
+配套还有一段系统提示词，紧跟出厂 `tool:read` 的指引：0.1.5 及以前是 order 101（出厂是 100），0.1.7 起取 `getSectionOrder('TOOL_READ') + 1`。当前 agent 调不到 `display_file` 时这段为空；在提供 `present` 的版本上，它把交付物让给 `present`、把答案里的配图让给 markdown 图片，避免同一个文件被展示、内嵌、交付三遍。`.html` **不在**纠正范围内：读 HTML 源码是正当的文本读取，显示它是另一个意图。
 
 ## 配置
 
-`crosery-viewer` 命名空间，三个开关，默认值都是「插件该有的行为」：
+四个开关，默认值都是「插件该有的行为」：
 
 | 字段 | 默认 | 关掉之后 |
 | --- | --- | --- |
@@ -155,7 +159,12 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 | `feedModel` | `true` | 图片只上屏，永不进模型上下文——图给人看而不是给模型看时更省 token |
 | `supersedeReadImage` | `true` | 出厂 `read_image` 重新对模型可见（于是又可能出现同一张图进两次上下文） |
 
-改 `$DSH_HOME/settings.yaml` 即可，热重载，不需要重启。也可以在 `cordis.patch.yml` 里钉死；注意 patch **整行替换 `config`**，要重述每一个键。
+在哪里改取决于 harness 版本：
+
+- **0.1.5 及以前**：改 `$DSH_HOME/settings.yaml` 的 `crosery-viewer` 段，热重载，不需要重启。
+- **0.1.7 起**（web 与桌面版）：`settings.yaml` 已被移除。**设置**页会按插件条目 `viewer` 自动生成表单，每个开关带说明，保存后写进 profile patch。旧 `settings.yaml` 的一次性导入按段名对应条目 id，所以 `crosery-viewer` 段**不会**被带过来（它只留在 `settings.yaml.imported` 里）——非默认值需要在 `viewer` 条目上重新设置一次。
+
+也可以在 `cordis.patch.yml` 里钉死；注意 patch **整行替换 `config`**，要重述每一个键。
 
 ## 装到 profile
 
@@ -215,3 +224,6 @@ npm test              # 71 个用例
 - **对象 URL 缓存到页面卸载才回收**。上界是一个页面生命周期内显示过的不同附件数量，与出厂对话图库按会话持有的上界同量级。
 - 远程 workspace（后端不提供 `processPath`）上，非图片媒体没有可用通道，卡片如实显示「此文件系统后端不提供可预览的本地路径」。
 - 未做视频转码：浏览器放不了的编码（例如 `.mov` 里的 ProRes）会落到 `<video>` 的降级文案上。
+- 桌面版里「在新标签打开」换成**「在侧边栏预览」**（harness 自带的预览，PDF 用 PDF.js）：桌面窗口会静默拒绝指向应用 URL 的新标签。卡片里的内容——图片、播放器、PDF 与文档内嵌框——与 web 上完全一样。
+- **轮次尾部需要 0.1.6 起的列表形态。** 在 0.1.2–0.1.5 上，折叠（`compact`）后的已完成轮次会把卡片留在折叠区里；想让它们保持展开，把对话视图切到 `normal`。在 0.1.6 的 `normal` 视图下，卡片会同时出现在轮次里和尾部。
+- 用户展开一个已折叠的轮次时，其中展示过的文件会出现两次——工具行里一次、尾部一次——与 harness 自己的交付文件卡片相同。
