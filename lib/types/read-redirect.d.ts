@@ -66,6 +66,32 @@ export declare function readPathOf(args: unknown): string | undefined;
  * @returns true when the dispatch should be replaced with the display pointer.
  */
 export declare function isMisdirectedRead(name: string, args: unknown): boolean;
+/** Wire name of the harness's own deliverable tool (`dsh-tool-present`, 0.1.7). */
+export declare const PRESENT_TOOL = "present";
+/**
+ * Where the display guidance goes: directly after the shipped read guidance.
+ *
+ * Up to 0.1.5 tool guidance sat at 100–199 with `tool:read` at 100. From 0.1.7
+ * orders are allocated centrally (`TOOL_READ` is 1100) behind
+ * `getSectionOrder`; a hard-coded 101 there would put this section ahead of
+ * every tool's guidance instead of beside the read tool's.
+ * @param registry - the `systemPrompt` service.
+ * @returns the order to register at.
+ */
+export declare function displaySectionOrder(registry: unknown): number;
+/**
+ * The guidance one prompt assembly receives.
+ *
+ * Empty whenever the scope cannot call `display_file` — the tool switched off
+ * in settings, or restricted away for this agent — so the model is never told
+ * about a tool it does not have. Where the harness also offers `present`, the
+ * three ways of putting a file in front of the user are divided explicitly:
+ * without that, a model reading both this section and the harness's own
+ * deliverable guidance tends to display, embed and present the same file.
+ * @param visible - whether a tool is visible in the assembling scope.
+ * @returns the section text, or `''`.
+ */
+export declare function displaySectionText(visible: (tool: string) => boolean): string;
 /**
  * Install the correction and the prompt section that makes it unnecessary.
  *

@@ -8,7 +8,9 @@
 
 import { deepEqual, equal, match, ok } from 'node:assert/strict'
 import { test } from 'node:test'
-import { isMisdirectedRead, mediaReadValue, readPathOf } from '../src/read-redirect.ts'
+import {
+  applyReadRedirect, displaySectionOrder, displaySectionText, isMisdirectedRead, mediaReadValue, readPathOf,
+} from '../src/read-redirect.ts'
 import { applySupersedeReadImage } from '../src/supersede-read-image.ts'
 import { ViewerSettingsSchema } from '../src/settings.ts'
 
@@ -149,4 +151,59 @@ test('the agent/created listener returns undefined, as the 0.1.6+ serial event r
   applySupersedeReadImage(h.ctx, () => true)
   deepEqual(h.created(fakeAgent({ now: true }, [])), [undefined])
   deepEqual(h.created(fakeAgent({ now: false }, [])), [undefined], 'also on the swallowed-failure path')
+})
+
+// --- the prompt section ---------------------------------------------------
+
+test('the section sits right after the read guidance on every train', () => {
+  // 0.1.7 allocates orders centrally: TOOL_READ is 1100.
+  equal(displaySectionOrder({ getSectionOrder: (name: string) => (name === 'TOOL_READ' ? 1100 : 0) }), 1101)
+  // Earlier trains have no lookup, and the read guidance sat at 100.
+  equal(displaySectionOrder({}), 101)
+  equal(displaySectionOrder(undefined), 101)
+  // A lookup that does not know the name must not take the plugin down.
+  equal(displaySectionOrder({ getSectionOrder: () => { throw new Error('unknown section') } }), 101)
+  equal(displaySectionOrder({ getSectionOrder: () => Number.NaN }), 101)
+})
+
+test('the section is empty wherever display_file is not callable', () => {
+  equal(displaySectionText(() => false), '')
+  equal(displaySectionText(tool => tool === 'present'), '', 'present alone is not a reason to talk about display_file')
+})
+
+test('the section defers deliverables to present only where present exists', () => {
+  const alone = displaySectionText(tool => tool === 'display_file')
+  match(alone, /display_file/)
+  ok(!/present/.test(alone), 'no mention of a tool the model does not have')
+
+  const both = displaySectionText(tool => tool === 'display_file' || tool === 'present')
+  match(both, /inline preview and playback/)
+  match(both, /present tool/)
+  match(both, /markdown image/)
+  match(both, /never display, embed, and present the same file/)
+})
+
+test('the registered section reads tool visibility per assembly scope', () => {
+  const sections: { name: string; order: number; text: unknown }[] = []
+  const visible = new Map<unknown, Set<string>>([
+    ['agent-with', new Set(['display_file', 'present'])],
+    ['agent-without', new Set()],
+  ])
+  const ctx = {
+    systemPrompt: {
+      getSectionOrder: () => 1100,
+      section: (section: { name: string; order: number; text: unknown }) => { sections.push(section); return () => {} },
+    },
+    tools: { get: (name: string, scope?: unknown) => (visible.get(scope)?.has(name) ? { name } : undefined) },
+    on: () => {},
+  }
+  applyReadRedirect(ctx as never, () => true)
+  equal(sections.length, 1)
+  const section = sections[0]!
+  equal(section.name, 'tool:display-file')
+  equal(section.order, 1101)
+  equal(typeof section.text, 'function', 'text is evaluated per assembly, not frozen at registration')
+  const text = section.text as (context: { scope?: unknown }) => string
+  match(text({ scope: 'agent-with' }), /present tool/)
+  equal(text({ scope: 'agent-without' }), '', 'a restricted-away or switched-off tool is not advertised')
 })
