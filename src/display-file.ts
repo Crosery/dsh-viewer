@@ -20,7 +20,6 @@ import { basename, extname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolExecution } from '@deepseek-ai/dsh-tools'
@@ -32,9 +31,6 @@ import {
 import { assetUrlFor } from './asset-token.ts'
 import { CONVERTED_MEDIA_TYPE, convertDocument } from './convert.ts'
 import { resolveDisplayTarget } from './read-target.ts'
-
-/** Plugin name stamped on a deferred nested-dispatch context. */
-const PLUGIN = '@crosery/dsh-viewer'
 
 /** Live settings and key material {@link applyDisplayTool} reads per call. */
 export interface DisplayToolOptions {
@@ -303,14 +299,12 @@ export function applyDisplayTool(ctx: Context, options: DisplayToolOptions): () 
         ...image === undefined ? {} : { image },
         ...conversionError === undefined ? {} : { unavailable: conversionError },
       }
-      // A nested (run_code) dispatch produces no model message of its own, so an
-      // image that belongs in context has to be deferred explicitly.
-      if (exec.parent !== undefined && value.inContext) {
-        exec.deferContext(createUserMessage({
-          content: displayContent(value),
-          source: { kind: 'plugin', plugin: PLUGIN },
-        }))
-      }
+      // No `exec.deferContext` for a nested (run_code) dispatch, deliberately.
+      // The code-mode transport already defers every successful child result
+      // that carries an image block — `render` above puts the image there — and
+      // forwards the child's own deferred contexts on top (dsh-tools 0.1.1
+      // `commit()` and 0.1.7 likewise). Deferring here as well put the same image
+      // into model context twice.
       return value
     },
     // Pure display: a generic card in the read family with a follow-along
