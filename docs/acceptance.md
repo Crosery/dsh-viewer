@@ -15,7 +15,7 @@ What was verified end to end, on which harness versions, and how. Every number b
 | `0.1.0-rc.2`, `0.1.0-rc.3`, `0.1.0-rc.6`, `0.1.0-rc.7` | predates: `dsh-client-ui-renderer` is first published at `0.1.0-rc.8` |
 | `0.0.1-rc.1`, `0.0.1-rc.2`, `0.0.1-rc.5` | predates: `dsh-client-ui-renderer` (and on rc.1/rc.2 `dsh-home-paths`) not published yet; the peer ranges refuse them |
 
-The suite had 103 tests at the time of the sweep; the 18 added since cover the CI scripts and need no harness package.
+Every supported row ran all 123 tests, 123/123, in the final sweep on 2026-09-26. The exit status was 0.
 
 The last v0.1.1 record called `0.1.2-alpha.5`, `0.1.5-alpha.1`, `0.1.5-alpha.2` and `0.1.5-rc.1` incoherent, on the evidence of npm's peer graph. The harness never runs that graph: `@deepseek-ai/dsh` pins every package it composes exactly. Installed the way the harness installs itself, all four pass.
 
@@ -28,11 +28,12 @@ The last v0.1.1 record called `0.1.2-alpha.5`, `0.1.5-alpha.1`, `0.1.5-alpha.2` 
 | `0.1.7-rc.2`, desktop app | the installed app's `Contents/Resources/app.asar/dsh`, run by its Electron binary with `ELECTRON_RUN_AS_NODE=1` (Node 24.18.1) and its bundled pnpm 11.7.0 | all 8 stages pass; 65 boot entries; a 9-specifier module table |
 | `0.1.7-rc.2`, npm | `npm install` into a throwaway prefix on Node 24.21.0; it is the newest release, so today's graph is its release graph; pnpm 11.7.0 | all 8 stages pass; 65 boot entries; a 9-specifier module table |
 | `0.1.1-rc.2`, npm | `npm install --before 2026-08-30T14:10:52.613Z` (as released) on Node 24.21.0; pnpm 11.7.0 | all 8 stages pass; 43 boot entries; a 7-specifier module table (no `dsh-client-store`, no dockkit) |
+| `0.1.0-rc.8`, `0.1.2-rc.1`, `0.1.3-alpha.2`, `0.1.5-rc.3`, `0.1.6-alpha.2`, `0.1.7-alpha.2` — the newest version of every other tuple, and npm `latest` and `alpha` | `npm install --before <that version's release window>` on Node 24.21.0; pnpm 11.7.0 | all 8 stages pass on each; 43, 47, 49, 54, 59 and 63 boot entries; module tables of 7 (0.1.0), 8 (0.1.2, 0.1.3) and 9 specifiers |
 | `0.1.7-rc.2`, desktop app, **released v0.1.1 tarball** | as above | **install refused**: `dsh: installation rejected: Plugin @crosery/dsh-viewer@0.1.1 is incompatible with dsh 0.1.7-rc.2: peerDependencies …`. This is the regression the smoke exists to catch |
 
 `node scripts/harness-target.mjs desktop --admits` on v0.1.1's manifest fails the same way: all 10 harness peers refuse `0.1.7-rc.2` under both rules.
 
-A fresh `npm i @deepseek-ai/dsh@0.1.1-rc.2` today resolves the cordis family to its 2026-09-22 releases (cordis 4.0.4, cordis-plugin-hmr 1.0.19, cordis-plugin-loader 1.0.5), and that harness does not boot even with no plugin at all: `dsh: user patch-layer watching requires the Cordis HMR service`. Resolved as of its release window instead (cordis 4.0.2, hmr 1.0.17, loader 1.0.3, the same set as the owner's everyday install), it boots. The smoke therefore installs each version with `npm install --before <the next release's publish time>`.
+A fresh `npm i @deepseek-ai/dsh@0.1.1-rc.2` today resolves the cordis family to its 2026-09-22 releases (cordis 4.0.4, cordis-plugin-hmr 1.0.19, cordis-plugin-loader 1.0.5), and that harness does not boot even with no plugin at all: `dsh: user patch-layer watching requires the Cordis HMR service`. Resolved as of its release window instead (cordis 4.0.2, hmr 1.0.17, loader 1.0.3, the same set as the owner's everyday install), it boots. The smoke therefore installs each version with `npm install --before <the next release's publish time>`, moved later when one of the version's own packages was published after that: `0.1.5-rc.3`'s `dsh-client-ui-sidebar-documentpreview` appeared about seven hours after it, and after `0.1.7-alpha.1`, so before then `0.1.5-rc.3` could not be installed at all. `0.1.0-rc.8` serves its boot graph as `window.__DSH_BOOT__` instead of `globalThis["__DSH_BOOT__"]`; the smoke reads both.
 
 ## 0.2.0 on 0.1.7-rc.2, live
 

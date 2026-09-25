@@ -185,7 +185,7 @@ npm run typecheck     # 两个 program 分开检查
 npm run build         # 两份 .d.ts + 两个 bundle（产物提交进仓库，改动后要一并提交）
 npm run check         # 仓库不变式（README 计数、locale 键、peer 范围、安装路径）
 npm run check:dist    # 提交的 lib/ 与重新构建逐字节一致
-npm test              # 121 个用例
+npm test              # 123 个用例
 ```
 
 v0.1.1 时在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet-5 路由，headless Chrome 驱动；0.2.0 在 0.1.7-rc.2 的 Web 与桌面版上的实测见 [docs/acceptance.zh.md](docs/acceptance.zh.md)）：
@@ -217,7 +217,7 @@ v0.1.1 时在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet
 
 | 在哪 | 版本 | 证据 |
 | --- | --- | --- |
-| Web（`dsh --profile web`） | 从 `0.1.0-rc.8` 到 `0.1.7-rc.2` 的每一个已发布版本，包括 npm 的 `latest`（`0.1.5-rc.3`）、`next`（`0.1.7-rc.2`）和 `alpha`（`0.1.7-alpha.2`） | 每个版本上两份类型检查和全部 121 个测试；打包后插件在 `0.1.1-rc.2` 与 `0.1.7-rc.2` 上的启动冒烟；`0.1.7-rc.2` 上的浏览器实测（v0.1.1 时也在 `0.1.1-rc.2` 与 `0.1.5-rc.2` 上实测过） |
+| Web（`dsh --profile web`） | 从 `0.1.0-rc.8` 到 `0.1.7-rc.2` 的每一个已发布版本，包括 npm 的 `latest`（`0.1.5-rc.3`）、`next`（`0.1.7-rc.2`）和 `alpha`（`0.1.7-alpha.2`） | 每个版本上两份类型检查和全部 123 个测试；打包后插件在每个元组的最新版本（`0.1.0-rc.8` 到 `0.1.7-rc.2`）以及 `0.1.7-alpha.2` 上的启动冒烟；`0.1.7-rc.2` 上的浏览器实测（v0.1.1 时也在 `0.1.1-rc.2` 与 `0.1.5-rc.2` 上实测过） |
 | 桌面版 | `0.1.7-rc.2`——它唯一的频道 `nightly` | 在应用自带运行时上的启动冒烟；macOS 桌面窗口里的实测 |
 
 peer 范围恰好接纳上面这些支持，无论按 npm 的 semver 规则，还是按 harness 从 0.1.7 起自己采用的「包含预发布」规则。`0.0.1` 早于浏览器半边需要的一个包；`0.1.8` 及以后等 CI 验证过才接纳。

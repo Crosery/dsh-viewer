@@ -132,7 +132,7 @@ npm run typecheck   # host and client are separate programs — see below
 npm run build       # two .d.ts trees + two bundles; the result is committed
 npm run check       # repo invariants: README counts, locale keys, peer range, install path
 npm run check:dist  # the committed lib/ is byte-identical to a fresh build
-npm test            # 121 cases
+npm test            # 123 cases
 ```
 
 Two tsconfigs are required, not fastidiousness: both halves augment the same `@deepseek-ai/cordis` `Context`, and `sessions` is `SessionStore` on the host but `ISessions` in the browser. One program seeing both augmentations silently resolves the wrong one, because `skipLibCheck` hides the conflict.
@@ -143,7 +143,7 @@ Two tsconfigs are required, not fastidiousness: both halves augment the same `@d
 
 | Where | Versions | Evidence |
 | --- | --- | --- |
-| Web (`dsh --profile web`) | every published version from `0.1.0-rc.8` through `0.1.7-rc.2` — npm `latest` (`0.1.5-rc.3`), `next` (`0.1.7-rc.2`) and `alpha` (`0.1.7-alpha.2`) included | both typechecks and all 121 tests on each version; a boot smoke of the packed plugin on `0.1.1-rc.2` and `0.1.7-rc.2`; live in a browser on `0.1.7-rc.2` (v0.1.1 also on `0.1.1-rc.2` and `0.1.5-rc.2`) |
+| Web (`dsh --profile web`) | every published version from `0.1.0-rc.8` through `0.1.7-rc.2` — npm `latest` (`0.1.5-rc.3`), `next` (`0.1.7-rc.2`) and `alpha` (`0.1.7-alpha.2`) included | both typechecks and all 123 tests on each version; a boot smoke of the packed plugin on the newest version of every tuple, `0.1.0-rc.8` through `0.1.7-rc.2`, and on `0.1.7-alpha.2`; live in a browser on `0.1.7-rc.2` (v0.1.1 also on `0.1.1-rc.2` and `0.1.5-rc.2`) |
 | Desktop app | `0.1.7-rc.2` — its only channel, `nightly` | the boot smoke on the app's own runtime; live in the desktop window on macOS |
 
 The peer ranges admit exactly that support, under npm's semver rule and under the prerelease-inclusive rule the harness applies itself from 0.1.7. `0.0.1` predates a package the browser half needs; `0.1.8` and later are admitted once CI has verified them.

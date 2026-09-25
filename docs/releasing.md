@@ -19,7 +19,7 @@ git tag v0.2.0 && git push origin v0.2.0
 
 - the four stages (types, tests, peer admission, boot smoke) on the `pinned` train, the `0.1.1-rc.2` floor, and the version the desktop app ships that day;
 - the boot smoke on the desktop zip itself (`desktop-bytes`, macOS);
-- types, tests and peer admission on every published harness version the sweep finds, from the lowest the peer ranges admit. A version published incomplete upstream is neutral and does not block.
+- types, tests and peer admission on every published harness version the sweep finds, from the lowest the peer ranges admit, and the boot smoke on the newest version of each tuple. A version published incomplete upstream is neutral and does not block.
 
 One consequence: a new harness tuple published after the last sweep fails the gate's `admission` stage until the ranges admit it. That is intended. Verify it and widen the ranges ([harness-compatibility.md](harness-compatibility.md)), or re-run the release once that is done.
 

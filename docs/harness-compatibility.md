@@ -8,15 +8,15 @@
 
 | Tuple | Verified versions | Types + tests | Boot smoke | Live, in a browser |
 | --- | --- | --- | --- | --- |
-| 0.1.0 | `0.1.0-rc.8` | yes | — | — |
+| 0.1.0 | `0.1.0-rc.8` | yes | `0.1.0-rc.8` | — |
 | 0.1.1 | `0.1.1-rc.1`, `0.1.1-rc.2` | yes | `0.1.1-rc.2` (the floor) | `0.1.1-rc.2`, with v0.1.1 |
-| 0.1.2 | `0.1.2-alpha.2`, `0.1.2-alpha.3`, `0.1.2-alpha.4`, `0.1.2-alpha.5`, `0.1.2-rc.1` | yes | — | — |
-| 0.1.3 | `0.1.3-alpha.2` | yes | — | — |
-| 0.1.5 | `0.1.5-alpha.1`, `0.1.5-alpha.2`, `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3` | yes | — | `0.1.5-rc.2`, with v0.1.1 |
-| 0.1.6 | `0.1.6-alpha.1`, `0.1.6-alpha.2` | yes | — | — |
-| 0.1.7 | `0.1.7-alpha.1`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2` | yes | `0.1.7-rc.2`, from npm and from the desktop app's own bytes | `0.1.7-rc.2`, Web and desktop |
+| 0.1.2 | `0.1.2-alpha.2`, `0.1.2-alpha.3`, `0.1.2-alpha.4`, `0.1.2-alpha.5`, `0.1.2-rc.1` | yes | `0.1.2-rc.1` | — |
+| 0.1.3 | `0.1.3-alpha.2` | yes | `0.1.3-alpha.2` | — |
+| 0.1.5 | `0.1.5-alpha.1`, `0.1.5-alpha.2`, `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3` | yes | `0.1.5-rc.3` | `0.1.5-rc.2`, with v0.1.1 |
+| 0.1.6 | `0.1.6-alpha.1`, `0.1.6-alpha.2` | yes | `0.1.6-alpha.2` | — |
+| 0.1.7 | `0.1.7-alpha.1`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2` | yes | `0.1.7-alpha.2`; `0.1.7-rc.2` from npm and from the desktop app's own bytes | `0.1.7-rc.2`, Web and desktop |
 
-"Types + tests" means both typechecks and the whole suite pass with every `@deepseek-ai/dsh-*` devDependency repointed at exactly that version (`node scripts/sweep-trains.mjs`). The evidence for each column is in [acceptance.md](acceptance.md). The weekly CI sweep re-proves the first column and extends the boot smoke to the newest version of every tuple.
+"Types + tests" means both typechecks and the whole suite pass with every `@deepseek-ai/dsh-*` devDependency repointed at exactly that version (`node scripts/sweep-trains.mjs`). The evidence for each column is in [acceptance.md](acceptance.md). The weekly CI sweep re-proves both: types and tests on every version, the boot smoke on the newest version of every tuple.
 
 Not supported, on evidence:
 
@@ -84,7 +84,7 @@ The broad range does admit those prereleases under dsh's own `includePrerelease`
 | `floor` | `0.1.1-rc.2` | required | — | gate |
 | `desktop` | the version both desktop update feeds announce, required to agree and to exist as `@deepseek-ai/dsh` on npm | runs, not required | daily | gate |
 | `latest` / `next` / `alpha` | npm dist-tags of `@deepseek-ai/dsh` | — | daily | — |
-| `sweep` | every published `@deepseek-ai/dsh` version from the lowest the peer ranges admit, read from npm at run time | — | weekly, with smoke on the floor and the newest version of each tuple | gate (types, tests, admission) |
+| `sweep` | every published `@deepseek-ai/dsh` version from the lowest the peer ranges admit, read from npm at run time | — | weekly, with smoke on the floor, the newest version of each tuple and every dist-tag | gate, with the same smoke |
 | `desktop-bytes` | the macOS zip from the `mac-arm64` feed: sha512-verified, cross-checked against its `desktop-runtime.json`, smoked with the app's own Electron Node and bundled pnpm | — | daily and weekly | gate |
 
 Details that matter when reading a run:
@@ -92,7 +92,7 @@ Details that matter when reading a run:
 - **Only one desktop channel exists.** The app hard-codes `nightly`, and only `mac-arm64` and `win-x64` are built. A disagreement between the two feeds fails the `desktop` cell; a version the feeds announce before npm has it is **incomplete**.
 - **Incomplete is neutral.** A version that predates a package this plugin needs, or is not on npm yet, or whose bare `@deepseek-ai/dsh` does not install, neither opens nor closes an issue.
 - **A new release shows up by itself.** The sweep reads the version list at run time. A version on a tuple the ranges do not cover yet (say `0.1.8-alpha.1`) arrives as an `admission` failure, which is the prompt to verify it.
-- **The smoke installs a train as it was released.** `smoke-boot.mjs --dsh <v>` passes `npm install --before <the moment the next @deepseek-ai/dsh was published>`. The cordis family floats under every train, and its 2026-09-22 releases broke a fresh `npm i @deepseek-ai/dsh@0.1.1-rc.2`, which no longer boots even with no plugin installed (`user patch-layer watching requires the Cordis HMR service`). Pass `--graph today` to see what a fresh install gets. When a boot fails, the smoke boots the same harness again without the plugin and reports which of the two it was.
+- **The smoke installs a train as it was released.** `smoke-boot.mjs --dsh <v>` passes `npm install --before <the moment the next @deepseek-ai/dsh was published>`, moved later only when one of the train's own packages was published after that (`0.1.5-rc.3`'s `dsh-client-ui-sidebar-documentpreview` came out after `0.1.7-alpha.1`). The cordis family floats under every train, and its 2026-09-22 releases broke a fresh `npm i @deepseek-ai/dsh@0.1.1-rc.2`, which no longer boots even with no plugin installed (`user patch-layer watching requires the Cordis HMR service`). Pass `--graph today` to see what a fresh install gets. When a boot fails, the smoke boots the same harness again without the plugin and reports which of the two it was.
 - **Not covered by any stage:** the Electron renderer, the desktop preload bridge and native drag-and-drop. Those need the GUI and are verified by hand ([acceptance.md](acceptance.md)).
 
 Run any of it locally:
