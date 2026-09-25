@@ -120,6 +120,13 @@ export interface SettingsHooks {
  * resolves named exports before any code runs, so on 0.1.2 and later the whole
  * host entry failed to load — `does not provide an export named
  * 'installSettingsSection'` — instead of degrading to entry-config behavior.
+ *
+ * 0.1.7 replaced the service again: `ctx.settings` is `SettingsForms`, with
+ * neither method. Its forms are generated from this plugin's exported `Config`
+ * under the profile entry id (`viewer`), and a saved change is written to the
+ * profile patch and re-applies the plugin with the new entry config — so on
+ * that train both arms below are skipped and the composition entry IS the
+ * settings source, which `apply` already treats as the default.
  */
 interface SettingsServiceLike {
   installSection?(
