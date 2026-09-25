@@ -130,7 +130,7 @@ function prepare(version) {
   for (const file of ['tsconfig.json', 'tsconfig.client.json', 'cordis.patch.yml']) cpSync(join(root, file), join(dir, file))
   writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
   if (!reinstall && existsSync(stamp)) {
-    const [pins, via] = readFileSync(stamp, 'utf8').split('\n')
+    const [pins, via = 'peer graph'] = readFileSync(stamp, 'utf8').split('\n')
     if (pins === wanted) return { ok: true, dir, reused: true, via, output: '' }
   }
   const fresh = () => {
@@ -149,6 +149,15 @@ function prepare(version) {
     fresh()
     const shipped = structuredClone(manifest)
     shipped.devDependencies['@deepseek-ai/dsh'] = version
+    // Legacy peer mode installs no peers at all, and some harness packages
+    // reach others only as peers (dsh-tools → dsh-scope). Pin every such
+    // harness peer the train published at exactly this version.
+    for (const name of harnessDeps) {
+      for (const peer of Object.keys(view(`${name}@${version}`, 'peerDependencies') ?? {})) {
+        if (!peer.startsWith('@deepseek-ai/dsh') || peer in shipped.devDependencies) continue
+        if (versionsOf(peer).includes(version)) shipped.devDependencies[peer] = version
+      }
+    }
     writeFileSync(join(dir, 'package.json'), JSON.stringify(shipped, null, 2) + '\n')
     const second = run(dir, 'npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps'])
     if (second.ok) {
