@@ -25,33 +25,32 @@
 
 ## 0.3.0：每一个已发布版本
 
-`node scripts/sweep-trains.mjs --work /tmp/viewer-early-sweep`，2026-09-26 运行（Node 26.7.0、npm 11），覆盖全部 27 个已发布版本。某版本从未发布的 harness 包保留本仓库钉住的版本（`0.1.0-rc.8` 之前是 `dsh-client-ui-renderer@0.1.7-rc.2`），有 `dsh-client-runtime` 的版本把它钉到该版本。
+`node scripts/sweep-trains.mjs`，2026-09-26 在最终的代码树上运行（Node 26.7.0、npm 11），覆盖全部 27 个已发布版本。某版本从未发布的 harness 包保留本仓库钉住的版本（`0.1.0-rc.8` 之前是 `dsh-client-ui-renderer@0.1.7-rc.2`），有 `dsh-client-runtime` 的版本把它钉到该版本。
 
 | 版本 | 结果 |
 | --- | --- |
-| `0.0.1-rc.5` | 通过：host tsc、client tsc 和 170/170 测试；`dsh-client-ui-renderer` 保留在 `0.1.7-rc.2`，`dsh-client-runtime` 钉到该版本 |
-| `0.1.0-rc.2`、`0.1.0-rc.3`、`0.1.0-rc.6`、`0.1.0-rc.7` | 通过，170/170，renderer 保留在钉住的版本；经由该版本自己的 `@deepseek-ai/dsh` 安装，因为它的脱字符 peer 让 npm 的 peer 图以 `ERESOLVE` 中止 |
-| `0.1.0-rc.8`、`0.1.1-rc.2`、`0.1.2-rc.1`、`0.1.3-alpha.2`、`0.1.5-rc.3`、`0.1.6-alpha.2`、`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2` | 通过，170/170 |
-| `0.1.1-rc.1`、`0.1.2-alpha.2` – `alpha.5`、`0.1.5-alpha.1`、`0.1.5-alpha.2`、`0.1.5-rc.1`、`0.1.5-rc.2`、`0.1.6-alpha.1`、`0.1.7-alpha.1` | 通过，170/170，经由该版本自己的 `@deepseek-ai/dsh` 安装（peer 图 `ERESOLVE`） |
+| `0.0.1-rc.5`、`0.1.0-rc.8`、`0.1.1-rc.2`、`0.1.2-rc.1`、`0.1.3-alpha.2`、`0.1.5-rc.3`、`0.1.6-alpha.2`、`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2` | 通过：host tsc、client tsc 和 174/174 测试（`0.0.1-rc.5` 上 `dsh-client-ui-renderer` 保留在 `0.1.7-rc.2`） |
+| `0.1.0-rc.2`、`0.1.0-rc.3`、`0.1.0-rc.6`、`0.1.0-rc.7`、`0.1.1-rc.1`、`0.1.2-alpha.2` – `alpha.5`、`0.1.5-alpha.1`、`0.1.5-alpha.2`、`0.1.5-rc.1`、`0.1.5-rc.2`、`0.1.6-alpha.1`、`0.1.7-alpha.1` | 通过，174/174；经由该版本自己的 `@deepseek-ai/dsh` 安装，因为它的脱字符 peer 让 npm 的 peer 图以 `ERESOLVE` 中止（0.1.0 各构建的 renderer 保留在钉住的版本） |
 | `0.0.1-rc.1`、`0.0.1-rc.2` | 上游发布不完整：单独安装该版本的 `@deepseek-ai/dsh` 得到 `npm error 404 Not Found - GET https://registry.npmjs.org/@deepseek-ai%2fdsh-agent-tool-mode`。类型和测试没跑：`dsh-client-ui-renderer` 和 `dsh-home-paths` 在那里也没发布 |
 
 每个 harness peer 在两种规则下都接纳全部 27 个版本。退出码是 0。
 
-## 0.3.0：启动冒烟
+## 0.3.0：启动冒烟，在无头 Chrome 里运行
 
-严格模式（不带豁免），`SMOKE_RESULT=/tmp/viewer-early-smoke.jsonl`，Node 26.7.0、pnpm 11.7.0，每个 harness 都按发布时的样子安装。
+严格模式（不带豁免），Node 26.7.0、pnpm 11.7.0，通过 playwright-core 驱动无头 Google Chrome 153，每一行装的都是同一个打包好的 `dsh-viewer-0.3.0.tgz`。每个 harness 都以「该版本自己的 `@deepseek-ai/dsh` 发布一秒之后」为 `--before` 安装（只因它自己晚发布的包才往后挪），装好的依赖树里没有任何更晚版本的包。每一行的每个阶段都通过：harness、pnpm、install、boot、host-activation、client-graph、client-load、client-exports 和 `client-boot`——应用在 Chrome 里挂载完成、本插件的模块已加载，页面上没有任何关于本插件的问题。
 
-| Harness | 安装方式 | 结果 |
+| Harness | 启动条目 | 模块表 |
 | --- | --- | --- |
-| `0.0.1-rc.5` | `npm install --before 2026-08-13T09:48:26.232Z` | 8 个阶段全部通过；39 个启动条目；报告依赖图里没有 renderer；10 项的模块表 |
-| `0.1.0-rc.2` | `--before 2026-08-13T11:20:53.822Z` | 同上：39 个条目、没有 renderer、10 项 |
-| `0.1.0-rc.3` | `--before 2026-08-13T12:42:46.293Z`，时刻挪到了晚发布的 `dsh-timeout@0.1.0-rc.6` 之后（第一次运行在那里以 `notarget` 停下；修的是冒烟，不是插件） | 同上：39 个条目、没有 renderer、10 项 |
-| `0.1.0-rc.6` | `--before 2026-08-17T11:50:59.194Z` | 同上：39 个条目、没有 renderer、10 项 |
-| `0.1.0-rc.7` | `--before 2026-08-19T15:41:29.655Z`，legacy peer 模式 + 补装 20 个未满足的 peer | 8 个阶段全部通过；43 个条目，含 renderer：按发布时的样子装，它跑的已经是 rc.8 的前端；7 项 |
-| `0.1.0-rc.8`、`0.1.1-rc.2`（最低线） | 各自发布时间窗的 `--before`，legacy peer 模式 + 补装 20 和 21 个 peer | 8 个阶段全部通过；43 个条目；7 项 |
-| `0.1.2-rc.1`、`0.1.3-alpha.2`、`0.1.5-rc.3`、`0.1.6-alpha.2`、`0.1.7-alpha.2` | 各自发布时间窗的 `--before` | 8 个阶段全部通过；47、49、54、59、63 个条目；8、8、9、9、9 项 |
-| `0.1.7-rc.2`，npm | `npm install`，最新的发布 | 8 个阶段全部通过；65 个条目；9 项 |
-| `0.1.7-rc.2`，桌面版 | `/tmp/dsh-desktop-017/dsh`（应用的 `app.asar/dsh`），用已安装应用的可执行文件加 `ELECTRON_RUN_AS_NODE=1` 运行（Node 24.18.1） | 8 个阶段全部通过；65 个条目；9 项 |
+| `0.0.1-rc.5`、`0.1.0-rc.2`、`rc.3`、`rc.6`、`rc.7` | 39（`dsh-client-web` 外壳；报告依赖图里没有 renderer） | 10 项 |
+| `0.1.0-rc.8`、`0.1.1-rc.1`、`0.1.1-rc.2`（最低线） | 43；legacy peer 模式 + 补装 20、21、21 个 peer | 7 项 |
+| `0.1.2-alpha.2` – `alpha.5`、`0.1.2-rc.1`、`0.1.3-alpha.2` | 47、47、47、47、47、49 | 8 项 |
+| `0.1.5-alpha.1` – `rc.3`、`0.1.6-alpha.1`、`0.1.6-alpha.2` | 0.1.5 各 54，0.1.6 为 57 和 59 | 9 项 |
+| `0.1.7-alpha.1`、`alpha.2`、`rc.1`、`rc.2`（npm） | 63、63、63、65 | 9 项 |
+| `0.1.7-rc.2`，桌面版 | 65——`/tmp/dsh-desktop-017/dsh`（应用的 `app.asar/dsh`），用已安装应用的可执行文件加 `ELECTRON_RUN_AS_NODE=1` 运行（Node 24.18.1） | 9 项 |
+
+完整运行中 `0.1.5-alpha.1` 失败过一次，报 `Target page, context or browser has been closed`——机器负载高时 Chrome 自己退出了——重跑两次都通过；现在浏览器阶段遇到 Chrome 退出会换一个新 profile 重试一次。反向对照——同一个包，分别让客户端在 `apply` 里抛错、在应用挂载后抛错、或者 slot 注册被拒——在 `0.0.1-rc.5`、`0.1.1-rc.2` 和 `0.1.7-rc.2` 上都让 `client-boot` 失败。
+
+这个分支上更早的一次运行以「下一个版本的发布时刻」为界安装，脱字符范围因而拿到了下一个版本的包：`0.1.0-rc.7` 起来的是 rc.8 的 43 条目、7 项外壳，本记录曾把它当成 rc.7 自己的。按发布时的样子安装，`0.1.0-rc.7` 跑的是和 `rc.6` 一样的旧外壳。
 
 同样这些版本按今天的依赖图安装（`--graph today`：`0.0.1-rc.5`、`0.1.0-rc.2`、`rc.3`、`rc.6`、`rc.7`），会解析到 cordis 4.0.4、cordis-plugin-hmr 1.0.19 和 cordis-plugin-loader 1.0.5，0.1.0 各版本还会拿到 `0.1.0-rc.8` 的子包。每一次冒烟都在 `boot` 失败，而冒烟自带的对照——同一个 harness、不装插件的 home——也以同样方式失败：`dsh: user patch-layer watching requires the Cordis HMR service`。这张依赖图谁都启动不了。
 

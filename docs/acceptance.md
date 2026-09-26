@@ -25,33 +25,32 @@ What these trains lack, and why it does not matter, is in [harness-compatibility
 
 ## 0.3.0: every published version
 
-`node scripts/sweep-trains.mjs --work /tmp/viewer-early-sweep`, run on 2026-09-26 (Node 26.7.0, npm 11), over all 27 published versions. A harness package the train never published keeps the repository's pin (`dsh-client-ui-renderer@0.1.7-rc.2` before `0.1.0-rc.8`), and `dsh-client-runtime` is pinned to the train where it exists.
+`node scripts/sweep-trains.mjs`, run on 2026-09-26 (Node 26.7.0, npm 11) on the final tree, over all 27 published versions. A harness package the train never published keeps the repository's pin (`dsh-client-ui-renderer@0.1.7-rc.2` before `0.1.0-rc.8`), and `dsh-client-runtime` is pinned to the train where it exists.
 
 | Versions | Outcome |
 | --- | --- |
-| `0.0.1-rc.5` | pass: host tsc, client tsc and 170/170 tests, with `dsh-client-ui-renderer` kept at `0.1.7-rc.2` and `dsh-client-runtime` pinned to the train |
-| `0.1.0-rc.2`, `0.1.0-rc.3`, `0.1.0-rc.6`, `0.1.0-rc.7` | pass, 170/170, the renderer kept at the pin; installed through that version's own `@deepseek-ai/dsh`, because its caret peers make npm's peer graph stop with `ERESOLVE` |
-| `0.1.0-rc.8`, `0.1.1-rc.2`, `0.1.2-rc.1`, `0.1.3-alpha.2`, `0.1.5-rc.3`, `0.1.6-alpha.2`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2` | pass, 170/170 |
-| `0.1.1-rc.1`, `0.1.2-alpha.2` – `alpha.5`, `0.1.5-alpha.1`, `0.1.5-alpha.2`, `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.6-alpha.1`, `0.1.7-alpha.1` | pass, 170/170, installed through that version's own `@deepseek-ai/dsh` (`ERESOLVE` on the peer graph) |
+| `0.0.1-rc.5`, `0.1.0-rc.8`, `0.1.1-rc.2`, `0.1.2-rc.1`, `0.1.3-alpha.2`, `0.1.5-rc.3`, `0.1.6-alpha.2`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2` | pass: host tsc, client tsc and 174/174 tests (on `0.0.1-rc.5` with `dsh-client-ui-renderer` kept at `0.1.7-rc.2`) |
+| `0.1.0-rc.2`, `0.1.0-rc.3`, `0.1.0-rc.6`, `0.1.0-rc.7`, `0.1.1-rc.1`, `0.1.2-alpha.2` – `alpha.5`, `0.1.5-alpha.1`, `0.1.5-alpha.2`, `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.6-alpha.1`, `0.1.7-alpha.1` | pass, 174/174, installed through that version's own `@deepseek-ai/dsh` because its caret peers make npm's peer graph stop with `ERESOLVE` (the 0.1.0 builds with the renderer kept at the pin) |
 | `0.0.1-rc.1`, `0.0.1-rc.2` | incomplete upstream: `npm error 404 Not Found - GET https://registry.npmjs.org/@deepseek-ai%2fdsh-agent-tool-mode`, installing `@deepseek-ai/dsh` at that version on its own. Types and tests not run: `dsh-client-ui-renderer` and `dsh-home-paths` were not published there either |
 
 Every harness peer admits all 27 versions under both rules. The exit status was 0.
 
-## 0.3.0: boot smoke
+## 0.3.0: boot smoke, in headless Chrome
 
-Strict (no exemption), `SMOKE_RESULT=/tmp/viewer-early-smoke.jsonl`, Node 26.7.0, pnpm 11.7.0, each harness installed as released.
+Strict (no exemption), Node 26.7.0, pnpm 11.7.0, headless Google Chrome 153 through playwright-core, one packed `dsh-viewer-0.3.0.tgz` for every row. Each harness is installed `--before` one second after its own `@deepseek-ai/dsh` was published (moved later only past its own stragglers), and the installed tree held no package of a later train. Every stage passed on every row — harness, pnpm, install, boot, host-activation, client-graph, client-load, client-exports and `client-boot`: the app mounted in Chrome with the viewer's module loaded and nothing on the page about the plugin.
 
-| Harness | How it was installed | Result |
+| Harness | Boot entries | Module table |
 | --- | --- | --- |
-| `0.0.1-rc.5` | `npm install --before 2026-08-13T09:48:26.232Z` | all 8 stages pass; 39 boot entries; the renderer reported absent from the graph; a 10-specifier module table |
-| `0.1.0-rc.2` | `--before 2026-08-13T11:20:53.822Z` | the same: 39 entries, renderer absent, 10 specifiers |
-| `0.1.0-rc.3` | `--before 2026-08-13T12:42:46.293Z`, moved past the late `dsh-timeout@0.1.0-rc.6` (the first run stopped there with `notarget`; fixed in the smoke, not in the plugin) | the same: 39 entries, renderer absent, 10 specifiers |
-| `0.1.0-rc.6` | `--before 2026-08-17T11:50:59.194Z` | the same: 39 entries, renderer absent, 10 specifiers |
-| `0.1.0-rc.7` | `--before 2026-08-19T15:41:29.655Z`, legacy peer mode + 20 unmet peers | all 8 stages pass; 43 entries with the renderer: as released it already runs rc.8's front end; 7 specifiers |
-| `0.1.0-rc.8`, `0.1.1-rc.2` (the floor) | `--before` each release window, legacy peer mode + 20 and 21 unmet peers | all 8 stages pass; 43 entries; 7 specifiers |
-| `0.1.2-rc.1`, `0.1.3-alpha.2`, `0.1.5-rc.3`, `0.1.6-alpha.2`, `0.1.7-alpha.2` | `--before` each release window | all 8 stages pass; 47, 49, 54, 59 and 63 entries; 8, 8, 9, 9 and 9 specifiers |
-| `0.1.7-rc.2`, npm | `npm install`, the newest release | all 8 stages pass; 65 entries; 9 specifiers |
-| `0.1.7-rc.2`, desktop app | `/tmp/dsh-desktop-017/dsh` (the app's `app.asar/dsh`), run by the installed app's binary with `ELECTRON_RUN_AS_NODE=1` (Node 24.18.1) | all 8 stages pass; 65 entries; 9 specifiers |
+| `0.0.1-rc.5`, `0.1.0-rc.2`, `rc.3`, `rc.6`, `rc.7` | 39 (the `dsh-client-web` shell; the renderer reported absent from the graph) | 10 specifiers |
+| `0.1.0-rc.8`, `0.1.1-rc.1`, `0.1.1-rc.2` (the floor) | 43; legacy peer mode + 20, 21 and 21 unmet peers | 7 |
+| `0.1.2-alpha.2` – `alpha.5`, `0.1.2-rc.1`, `0.1.3-alpha.2` | 47, 47, 47, 47, 47, 49 | 8 |
+| `0.1.5-alpha.1` – `rc.3`, `0.1.6-alpha.1`, `0.1.6-alpha.2` | 54 each on 0.1.5, 57 and 59 on 0.1.6 | 9 |
+| `0.1.7-alpha.1`, `alpha.2`, `rc.1`, `rc.2` (npm) | 63, 63, 63, 65 | 9 |
+| `0.1.7-rc.2`, desktop app | 65 — `/tmp/dsh-desktop-017/dsh` (the app's `app.asar/dsh`) run by the installed app's binary with `ELECTRON_RUN_AS_NODE=1` (Node 24.18.1) | 9 |
+
+`0.1.5-alpha.1` failed once in the full run with `Target page, context or browser has been closed` — Chrome itself went away on a loaded machine — and passed twice when rerun; the browser stage now retries once with a fresh profile when Chrome closes. Negative controls — the same tarball with its client made to throw in `apply`, to throw after the app mounted, or to have its slot registration refused — failed `client-boot` on `0.0.1-rc.5`, `0.1.1-rc.2` and `0.1.7-rc.2`.
+
+An earlier run on this branch had cut each install at the *next* train's publication, and caret ranges then took that train's packages: `0.1.0-rc.7` came up with rc.8's 43-entry, 7-specifier shell, which this record once reported as its own. Installed as released, `0.1.0-rc.7` runs the old shell like `rc.6`.
 
 The same trains installed as of today (`--graph today`: `0.0.1-rc.5`, `0.1.0-rc.2`, `rc.3`, `rc.6`, `rc.7`) resolve cordis 4.0.4, cordis-plugin-hmr 1.0.19 and cordis-plugin-loader 1.0.5, and the 0.1.0 trains take `0.1.0-rc.8`'s sub-packages. Each smoke failed at `boot`, and in each the smoke's own control run, the same harness in a home without the plugin, failed the same way: `dsh: user patch-layer watching requires the Cordis HMR service`. That graph does not boot for anyone.
 
