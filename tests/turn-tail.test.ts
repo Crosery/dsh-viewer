@@ -10,8 +10,9 @@
 import { deepEqual, equal, ok, throws } from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  VIEWER_TURN_DATA, VIEWER_TURN_END, displayedValueOf, foldSourceOf, foldsCompletedTurns, nestedDisplayDefinition,
-  tailDisplays, turnEndDefinition, turnStaysOpen, viewerTurnDefinition, viewerTurnDefinitions,
+  CHAT_TURN_PROCESS, VIEWER_TURN_DATA, VIEWER_TURN_END, displayedValueOf, foldSourceOf, foldsCompletedTurns,
+  hasInterleavedInput, humanInputDefinition, nestedDisplayDefinition, tailDisplays, turnEndDefinition, turnStaysOpen,
+  viewerTurnDefinition, viewerTurnDefinitions,
   type EventLike, type MatchLike, type ReaderLike, type TurnLike, type ViewerTurnData, type ViewerTurnState,
 } from '../src/client/turn-tail.ts'
 import { formatDisplayOutput } from '../src/display-file.ts'
@@ -156,12 +157,16 @@ interface DefinitionLike {
  * engines were driven through the same Definitions over a window, a live tail
  * and a prepended older page while this was written.
  */
-function assemble(events: EventLike[], unplaced: ReadonlySet<number> = new Set()) {
+function assemble(events: EventLike[], unplaced: ReadonlySet<number> = new Set(), chatData: Record<number, Record<string, unknown>> = {}) {
   const contexts = new Map<string, { kind: string; state: unknown; definition: DefinitionLike }>()
   const latest = new Map<string, { state: unknown }>()
+  const starts = new Map<number, EventLike>()
   let open: number | undefined
   for (const event of events) {
-    if (event.type === 'turn/start') open = (event.data as { turn: number }).turn
+    if (event.type === 'turn/start') {
+      open = (event.data as { turn: number }).turn
+      starts.set(open, event)
+    }
     const location = open === undefined || unplaced.has(event.seq as number) ? { kind: 'unresolved' } : { kind: 'step', turn: { turn: open } }
     for (const definition of viewerTurnDefinitions as unknown as DefinitionLike[]) {
       const matched = definition.match(event)
@@ -190,8 +195,9 @@ function assemble(events: EventLike[], unplaced: ReadonlySet<number> = new Set()
   }
   return (turn: number): TurnLike => ({
     status: 'closed',
+    start: starts.get(turn),
     end: { data: { reason: { kind: 'completed' } } },
-    data: { get: key => data.get(turn)?.get(key) },
+    data: { get: key => data.get(turn)?.get(key) ?? chatData[turn]?.[key] },
   })
 }
 
@@ -266,4 +272,74 @@ test('unchanged turn-end data is republished as the same value, and an empty tur
   equal(turnEndDefinition.buildLocationData({ state }, 'turn', first), first)
   equal(turnEndDefinition.buildLocationData({ state }, 'step', null), null)
   equal(turnEndDefinition.buildLocationData({ state: { turn: 1, nested: [] } }, 'turn', null), null)
+})
+
+/** A human message, appended to the model-visible surface. */
+const said = (seq: number, id: string, source = 'user'): EventLike =>
+  ({ type: 'user/message', seq, surfaceOp: 'append', data: { id, role: 'user', content: [], source: { kind: source } } })
+
+/**
+ * One turn the way 0.1.7 logs it: the opening prompt, a display, then the
+ * chat's process anchor at the first tool activity (seq start + 3). A steer
+ * lands in the second step, after the anchor.
+ */
+function turnWith(start: number, turn: number, { steer = false } = {}): EventLike[] {
+  return [
+    turnStart(start, turn),
+    said(start + 1, `m${turn}`),
+    call(start + 3, `d${turn}`, 'display_file', turn),
+    result(start + 4, `d${turn}`, PNG, {}, turn),
+    ...steer ? [said(start + 6, `s${turn}`)] : [],
+    turnEnd(start + 9, turn),
+  ]
+}
+
+const anchoredAt = (turns: Record<number, number>) =>
+  Object.fromEntries(Object.entries(turns).map(([turn, anchor]) => [turn, { [CHAT_TURN_PROCESS]: { controlAnchorSeq: anchor } }]))
+
+test('a turn the user steered keeps its cards in place on 0.1.7, as the chat keeps it open', () => {
+  const turn = assemble([...turnWith(1, 1), ...turnWith(11, 2, { steer: true })], new Set(), anchoredAt({ 1: 4, 2: 14 }))
+  equal(hasInterleavedInput(turn(1)), false, 'the opening prompt alone is not interleaved')
+  equal(hasInterleavedInput(turn(2)), true)
+  equal(tailDisplays(turn(1), 99, true).length, 1)
+  deepEqual(tailDisplays(turn(2), 99, true), [], 'the chat does not fold it, so the tail would repeat its rows')
+  // 0.1.6 folds a steered turn like any other, so there the tail still carries it.
+  equal(tailDisplays(turn(2), 99, false).length, 1)
+  equal(turnStaysOpen(turn(2), true), true)
+})
+
+test('only the user’s own messages count as input, and only within their turn', () => {
+  deepEqual(humanInputDefinition.match(said(1, 'm1')), { id: 'm1', role: 'start' })
+  equal(humanInputDefinition.match(said(1, 'c1', 'file-change')), null, 'injected context')
+  equal(humanInputDefinition.match(said(1, 'k1', 'compact-checkpoint')), null)
+  equal(humanInputDefinition.match({ ...said(1, 'm1'), surfaceOp: 'replace' }), null, 'a replacement copy')
+  equal(humanInputDefinition.match({ type: 'user/message', seq: 1, surfaceOp: 'append', data: { source: { kind: 'user' } } }), null, 'no id')
+
+  // Context injected mid-turn is not a steer.
+  const events = turnWith(1, 1)
+  events.splice(4, 0, said(7, 'c1', 'file-change'))
+  equal(hasInterleavedInput(assemble(events, new Set(), anchoredAt({ 1: 4 }))(1)), false)
+  // A turn with no input of its own does not inherit the previous turn's.
+  const quiet: EventLike[] = [turnStart(11, 2), call(14, 'd2', 'display_file', 2), result(15, 'd2', PNG, {}, 2), turnEnd(20, 2)]
+  const turn = assemble([...turnWith(1, 1, { steer: true }), ...quiet], new Set(), anchoredAt({ 1: 4, 2: 14 }))
+  equal(turn(2).data?.get?.(VIEWER_TURN_END), undefined, 'nothing to publish for turn 2')
+  equal(hasInterleavedInput(turn(2)), false)
+})
+
+test('the steer rule follows the chat’s own anchor exactly', () => {
+  const turn = assemble(turnWith(1, 1, { steer: true }), new Set(), anchoredAt({ 1: 4 }))(1)
+  equal(hasInterleavedInput(turn), true)
+  // Anchored at the turn's own start (no activity at all): every input is opening.
+  equal(hasInterleavedInput({ ...turn, data: { get: key => (key === CHAT_TURN_PROCESS ? { controlAnchorSeq: 1 } : turn.data?.get?.(key)) } }), false)
+  // Anchored after the last input: nothing came after the work began.
+  equal(hasInterleavedInput({ ...turn, data: { get: key => (key === CHAT_TURN_PROCESS ? { controlAnchorSeq: 8 } : turn.data?.get?.(key)) } }), false)
+  // Without the chat's anchor there is nothing to compare with; the tail keeps its cards.
+  equal(hasInterleavedInput({ ...turn, data: { get: key => (key === CHAT_TURN_PROCESS ? undefined : turn.data?.get?.(key)) } }), false)
+})
+
+test('the steer rule applies only where the chat has it: the 0.1.7 chat, recognized by its settings form', () => {
+  const form = { getSnapshot: () => ({ value: {} }), subscribe: () => () => {} }
+  equal(foldSourceOf(() => ({ get: (id: string) => (id === 'ui-chat' ? form : undefined) })).keepsSteeredTurnsOpen?.(), true)
+  equal(foldSourceOf(() => undefined).keepsSteeredTurnsOpen?.(), false, '0.1.6: no configForms at all')
+  equal(foldSourceOf(() => ({ get: () => undefined })).keepsSteeredTurnsOpen?.(), false)
 })

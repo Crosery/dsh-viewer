@@ -32,8 +32,8 @@ export type ViewerTailProps = ViewerTailOwner & ViewerTailInjected & {
  * The completed turn's displays, or nothing.
  *
  * Nothing whenever the rows are on screen anyway — the chat does not fold, or
- * this turn is still open, aborted, or failed — so the tail never repeats a
- * card the reader can already see.
+ * this turn is still open, aborted, failed, or (0.1.7) was steered — so the
+ * tail never repeats a card the reader can already see.
  * @param props - owner share, injected face, and `t`.
  * @returns the tail section, or `null`.
  */

@@ -62,8 +62,9 @@ export type { ViewerKey } from './locales.ts'
 export { isDesktopShell, mediaSourceFor } from './host.ts'
 export { READ_IMAGE_PRIORITY, TURN_TAIL_SLOT, VIEWER_NS, contribute, turnTailJoinable } from './registration.ts'
 export {
-  VIEWER_NESTED, VIEWER_TURN_DATA, VIEWER_TURN_END, displayedValueOf, foldSourceOf, foldsCompletedTurns,
-  nestedDisplayDefinition, tailDisplays, turnEndDefinition, turnStaysOpen, viewerTurnDefinition, viewerTurnDefinitions,
+  VIEWER_INPUT, VIEWER_NESTED, VIEWER_TURN_DATA, VIEWER_TURN_END, displayedValueOf, foldSourceOf, foldsCompletedTurns,
+  hasInterleavedInput, humanInputDefinition, nestedDisplayDefinition, tailDisplays, turnEndDefinition, turnStaysOpen,
+  viewerTurnDefinition, viewerTurnDefinitions,
 } from './turn-tail.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

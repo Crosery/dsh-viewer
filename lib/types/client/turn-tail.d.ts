@@ -24,7 +24,9 @@
  * display before it, and each `turn/end` starts a context that walks that
  * chain back through its own turn and publishes what it finds. The engine
  * replays a start whenever the predecessor it read changes, which keeps the
- * chain honest when older history loads.
+ * chain honest when older history loads. The same turn-end context records the
+ * turn's last human input, which the 0.1.7 chat's fold rule needs and which a
+ * `user/message` event cannot be routed to a turn to report either.
  *
  * Everything here is pure and structurally typed: the events come from a
  * session log this build may not have written, and the Definition contract is
@@ -37,8 +39,12 @@ import { type DisplayValue } from '../contract.ts';
 export declare const VIEWER_TURN_DATA = "crosery-viewer";
 /** Definition kind of one `display_file` dispatched from inside `run_code`. */
 export declare const VIEWER_NESTED = "crosery-viewer-nested";
+/** Definition kind of one human input message. */
+export declare const VIEWER_INPUT = "crosery-viewer-input";
 /** Definition kind, and Turn data key, of what a completed turn collects at its end. */
 export declare const VIEWER_TURN_END = "crosery-viewer-turn-end";
+/** The chat's own Turn data key for its fold boundaries (`dsh-client-ui-chat` 0.1.6+). */
+export declare const CHAT_TURN_PROCESS = "turn-process";
 /** One file a turn displayed. */
 export interface TurnDisplay {
     /** Log sequence of the settled result. */
@@ -87,10 +93,17 @@ export interface NestedDisplay {
     display: TurnDisplay | undefined;
     previous: NestedDisplay | undefined;
 }
+/** One human input message, where the engine placed it. */
+export interface HumanInput {
+    turn: number | undefined;
+    seq: number;
+}
 /** Turn-scoped data published when a turn ends. */
 export interface ViewerTurnEndData {
     /** `display_file` results dispatched from inside `run_code` during the turn, oldest first. */
     nested: readonly TurnDisplay[];
+    /** Log sequence of the turn's last human input message, when it had one. */
+    lastInputSeq?: number | undefined;
 }
 /** The turn-end Definition's state. */
 export interface ViewerTurnEndState extends ViewerTurnEndData {
@@ -155,6 +168,27 @@ export declare const nestedDisplayDefinition: {
     update(context: {
         state: NestedDisplay;
     }): NestedDisplay;
+    publication(): "none";
+};
+/**
+ * Each human input message: the prompt that opens a turn, and anything the
+ * user sends while it runs (a steer, or a message the turn picks up).
+ *
+ * The same messages the chat renders as `user` and `steering` rows — an
+ * appended `user/message` whose source is the user. Injected context is not
+ * one, and neither is the context row that wakes a turn: the chat counts that
+ * as input too, but it only ever opens a turn, which the fold rule ignores.
+ */
+export declare const humanInputDefinition: {
+    kind: string;
+    match(event: EventLike): {
+        id: string;
+        role: "start";
+    } | null;
+    start(_context: unknown, match: MatchLike): HumanInput;
+    update(context: {
+        state: HumanInput;
+    }): HumanInput;
     publication(): "none";
 };
 /**
@@ -229,6 +263,17 @@ export declare const viewerTurnDefinitions: readonly [{
         id: string;
         role: "start";
     } | null;
+    start(_context: unknown, match: MatchLike): HumanInput;
+    update(context: {
+        state: HumanInput;
+    }): HumanInput;
+    publication(): "none";
+}, {
+    kind: string;
+    match(event: EventLike): {
+        id: string;
+        role: "start";
+    } | null;
     start(_context: unknown, match: MatchLike, reader?: ReaderLike): ViewerTurnEndState;
     update(context: {
         state: ViewerTurnEndState;
@@ -250,19 +295,35 @@ export declare const viewerTurnDefinitions: readonly [{
 /** The slice of the tail owner's `turn` this module reads. */
 export interface TurnLike {
     status?: unknown;
+    start?: unknown;
     end?: unknown;
     data?: {
         get?: (key: string) => unknown;
     } | undefined;
 }
 /**
+ * Whether the user spoke again after the turn got to work: the 0.1.7 chat's
+ * `hasInterleavedInput`, reproduced from the data the tail can read.
+ *
+ * The chat anchors a turn's process at its first assistant or tool activity
+ * (`controlAnchorSeq`, published as its `turn-process` data). Input before
+ * that opened the turn; input after it was interleaved. With no activity at
+ * all the anchor is the turn's own start, and the chat counts every input as
+ * opening.
+ * @param turn - the tail owner's turn.
+ * @returns true when the turn holds human input after its process began.
+ */
+export declare function hasInterleavedInput(turn: TurnLike): boolean;
+/**
  * Whether the chat keeps this turn's work open, in which case the tool rows
  * are already on screen and a tail would only repeat them: a turn still
- * running, and one that ended aborted or in error.
+ * running, one that ended aborted or in error, and — in the chat that has the
+ * rule (0.1.7) — one the user steered while it ran.
  * @param turn - the tail owner's turn.
+ * @param steeredStaysOpen - whether the running chat keeps a steered turn open.
  * @returns true when the turn's process is not foldable.
  */
-export declare function turnStaysOpen(turn: TurnLike): boolean;
+export declare function turnStaysOpen(turn: TurnLike, steeredStaysOpen?: boolean): boolean;
 /**
  * The files a completed turn's tail shows.
  *
@@ -271,13 +332,19 @@ export declare function turnStaysOpen(turn: TurnLike): boolean;
  * where it was last displayed.
  * @param turn - the tail owner's turn.
  * @param closingSeq - the closing reply's log sequence.
+ * @param steeredStaysOpen - whether the running chat keeps a steered turn open.
  * @returns the displays to render, oldest first; empty when there are none.
  */
-export declare function tailDisplays(turn: TurnLike, closingSeq: number): readonly TurnDisplay[];
+export declare function tailDisplays(turn: TurnLike, closingSeq: number, steeredStaysOpen?: boolean): readonly TurnDisplay[];
 /** An observable boolean the tail reads with `useSyncExternalStore`. */
 export interface FoldSource {
     getSnapshot(): boolean;
     subscribe(listener: () => void): () => void;
+    /**
+     * Whether the running chat keeps a turn the user steered open. Read on each
+     * render rather than observed: the answer is fixed by which chat is running.
+     */
+    keepsSteeredTurnsOpen?(): boolean;
 }
 /**
  * Whether a transcript mode folds completed turns.
@@ -296,6 +363,10 @@ export declare function foldsCompletedTurns(mode: unknown): boolean;
  * Looked up on every read rather than once: the form service arrives with the
  * settings plugin, which need not have activated before this one. A train with
  * no such form is treated as folding — its default.
+ *
+ * The form's existence also tells the two chats with a turn tail apart. Every
+ * 0.1.7 chat requires `configForms` and keeps a steered turn open; no 0.1.6
+ * chat has either, and folds a steered turn like any other.
  * @param forms - reads the optional `configForms` service.
  * @returns the fold preference as an observable.
  */

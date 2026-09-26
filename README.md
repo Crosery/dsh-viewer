@@ -122,7 +122,7 @@ Where to edit them depends on the harness train:
 
 **Nested `run_code` calls get no `presentationMeta`.** The registry projects it only for top-level calls, so a `display_file` invoked from inside `run_code` would render as a bare header. The model-facing envelope therefore carries `<media>`, `<bytes>` and `<asset>` elements, and the card rebuilds from its own envelope when metadata is absent — validated through the same narrowing the replay path uses. The image of such a call reaches model context once: the code-mode transport already defers every child result that carries an image block, so the tool does not defer it again.
 
-**Completed turns keep their files on screen.** From 0.1.6 the chat folds a completed turn's tool rows behind one "used N s" disclosure, and 0.1.7 does it by default. The plugin therefore also contributes to the chat's turn tail — the list between a turn's closing reply and its action row, where the harness's own delivery cards live — and shows that turn's displayed files there once the turn completes. That includes files displayed from inside `run_code`: those calls are logged as `tool/ptc-dispatch` events that carry no turn number, so they are collected when the turn ends, from where the conversation engine itself placed them. The tail stands down wherever the rows are visible anyway: the `verbose` transcript view, and a turn that is still running, was aborted, or failed.
+**Completed turns keep their files on screen.** From 0.1.6 the chat folds a completed turn's tool rows behind one "used N s" disclosure, and 0.1.7 does it by default. The plugin therefore also contributes to the chat's turn tail — the list between a turn's closing reply and its action row, where the harness's own delivery cards live — and shows that turn's displayed files there once the turn completes. That includes files displayed from inside `run_code`: those calls are logged as `tool/ptc-dispatch` events that carry no turn number, so they are collected when the turn ends, from where the conversation engine itself placed them. The tail stands down wherever the rows are visible anyway: the `verbose` transcript view, a turn that is still running, was aborted, or failed, and — on 0.1.7, whose chat keeps such a turn unfolded — a turn the user steered while it ran.
 
 **The conversion cache survives restarts, and stays bounded.** The harness's bundled converter stamps each provider instance with a random `generation`, so keying artifacts on it made every restart a cold cache that was never hit again and only grew. The key is the converter's configuration instead — fonts, fallbacks, image resolution — plus the source's path, version and size: new settings are a new artifact, a restart is not. An engine upgrade under unchanged settings keeps serving the older render of the same bytes until it ages out. Pruning runs in the background at activation and after each write, and only ever removes regular files in the cache directory whose names the converters write.
 
@@ -136,7 +136,7 @@ npm run typecheck   # host and client are separate programs — see below
 npm run build       # two .d.ts trees + two bundles; the result is committed
 npm run check       # repo invariants: README counts, locale keys, peer range, install path
 npm run check:dist  # the committed lib/ is byte-identical to a fresh build
-npm test            # 142 cases
+npm test            # 146 cases
 ```
 
 Two tsconfigs are required, not fastidiousness: both halves augment the same `@deepseek-ai/cordis` `Context`, and `sessions` is `SessionStore` on the host but `ISessions` in the browser. One program seeing both augmentations silently resolves the wrong one, because `skipLibCheck` hides the conflict.
@@ -164,6 +164,7 @@ CI keeps the claim honest. Every pull request runs typecheck, tests, peer admiss
 - In the desktop app, "Open in a new tab" becomes **Preview in sidebar** (the harness's own preview, PDF.js for PDFs): the desktop window silently refuses new tabs for app URLs. Everything inside the card — images, players, PDF and document frames — renders the same as on the web.
 - The turn tail needs the list-shaped tail of 0.1.6+. On 0.1.2–0.1.5 a folded ("compact") completed turn keeps its cards inside the fold; switch the transcript view to `normal` there to keep them open. On 0.1.6 the `normal` view shows a card both in the turn and in its tail.
 - If the user expands a folded turn, its displayed files appear twice — in their tool rows and in the tail — as the harness's own delivered files do.
+- The tail recognizes a steered turn from the chat's own process anchor (its `turn-process` turn data). Should a future chat stop publishing that, a steered turn would show its cards twice — in its unfolded rows and in the tail — rather than lose them.
 
 ## License
 
