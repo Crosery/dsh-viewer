@@ -4,7 +4,7 @@
 
 # @crosery/dsh-viewer
 
-**Everything renders.** One `display_file` tool that puts images, video, audio, PDF, Office documents and local web pages inline in the [DeepSeek Harness](https://github.com/deepseek-ai) web UI — with a real player, not a filename and a byte count.
+**Everything renders.** One `display_file` tool that puts images, video, audio, PDF, Office documents and local web pages inline in the [DeepSeek Harness](https://github.com/deepseek-ai) conversation, on the web and in the desktop app — with a real player, not a filename and a byte count.
 
 [English](README.md) · [中文](README.zh.md) · MIT
 

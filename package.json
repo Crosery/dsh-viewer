@@ -1,7 +1,7 @@
 {
   "name": "@crosery/dsh-viewer",
   "version": "0.2.0",
-  "description": "Renders images, video, audio, PDF and Office documents inline in the dsh web UI through a display_file tool, streaming bytes over a signed HTTP route with range support.",
+  "description": "Renders images, video, audio, PDF and Office documents inline in the DeepSeek Harness web UI and desktop app through a display_file tool, streaming bytes over a signed HTTP route with range support.",
   "keywords": [
     "dsh",
     "dsh-plugin",
