@@ -49,12 +49,14 @@
  *                           first, to separate "peer range too narrow" from
  *                           "code broken". Never a gate.
  *
- * Appends one JSON line to $SMOKE_RESULT and a section to $GITHUB_STEP_SUMMARY.
+ * Appends one JSON line to $SMOKE_RESULT — with the sha256 of the tarball it
+ * installed — and a section to $GITHUB_STEP_SUMMARY.
  * Exit 0 passed, 1 failed.
  */
 
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
@@ -318,6 +320,9 @@ try {
     tarball = join(work, packed.filename)
   }
   result.tarball = tarball.startsWith(work) ? 'packed from the checkout' : tarball
+  // Which bytes this smoke vouches for: release notes may only claim a smoke
+  // of the released asset when this matches its digest.
+  result.tarballSha256 = createHash('sha256').update(readFileSync(tarball)).digest('hex')
 
   // 4. Install through the official command, so the version gate runs.
   if (values['accept-risk']) {

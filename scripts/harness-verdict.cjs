@@ -39,6 +39,7 @@ const ADVICE = {
   tests: 'the plugin\'s own tests fail against this train\'s packages.',
   admission: 'a peer range does not admit this version, so dsh ≥0.1.7 refuses to install or load the plugin. Widen only after types, tests and `node scripts/smoke-boot.mjs --dsh <version> --accept-risk` pass.',
   smoke: 'the packed plugin did not install, activate or get served on a real `dsh --profile web`; the step summary names the stage.',
+  tarball: 'the tarball the release packed could not be fetched from this run\'s artifacts, so nothing was smoked.',
   feed: 'the desktop update feed could not be read.',
   download: 'the desktop zip did not download or did not match the feed\'s sha512.',
   runtime: 'the desktop app\'s bundled runtime is not the version its feed announces.',

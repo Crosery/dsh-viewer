@@ -36,20 +36,27 @@ jobs:
       - name: Typecheck both halves
         run: npm run typecheck
 
+      # The built halves are committed so the git channel installs without the
+      # user approving a build script; this refuses a dist that drifted from
+      # src/. It compares lib/ with a scratch build, so it runs before `npm run
+      # build` rewrites lib/ in place — after that a stale commit compares equal.
+      - name: Assert the committed dist matches a fresh build
+        run: npm run check:dist
+
       - name: Build
-        run: npm run build
+        run: |
+          npm run build
+          if [ -n "$(git status --porcelain -- lib)" ]; then
+            git status --porcelain -- lib
+            echo "::error::npm run build changed lib/: commit the rebuilt dist"
+            exit 1
+          fi
 
       - name: Test
         run: npm test
 
       - name: Check repo invariants
         run: npm run check
-
-      # The built halves are committed so the git channel installs without the
-      # user approving a build script; this refuses a dist that drifted from
-      # src/.
-      - name: Assert the committed dist matches a fresh build
-        run: npm run check:dist
 
       # A client bundle may only require specifiers the loader's module table
       # answers. Anything else throws at plugin activation, in the browser,

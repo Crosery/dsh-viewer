@@ -8,7 +8,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { execFile } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -113,6 +113,40 @@ describe('repointed cells', () => {
   it('refuse a lockfile that does not resolve a devDependency', () => {
     const { ['node_modules/typescript']: _gone, ...packages } = lock.packages
     assert.throws(() => pinToolchain(pkg, { ...lock, packages }), /no exact version of devDependency typescript/)
+  })
+})
+
+describe('release notes', () => {
+  const script = fileURLToPath(new URL('../scripts/release-notes.mjs', import.meta.url))
+  const asset = 'a'.repeat(64)
+  function notes(cells: Record<string, object[]>) {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-viewer-notes-'))
+    try {
+      for (const [cell, rows] of Object.entries(cells)) {
+        mkdirSync(join(dir, `harness-${cell}`))
+        writeFileSync(join(dir, `harness-${cell}`, 'smoke.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n')
+      }
+      return spawnSync(process.execPath, [script, dir, '--sha256', asset], { encoding: 'utf8' })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+  const smoked = (dsh: string, extra: object = {}) => ({ dsh, outcome: 'passed', strict: true, tarballSha256: asset, ...extra })
+
+  it('names the smoked tarball and every version it passed on', () => {
+    const r = notes({ floor: [smoked('0.1.1-rc.2')], pinned: [smoked('0.1.7-rc.2')], 'desktop-bytes': [smoked('0.1.7-rc.2')] })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, new RegExp(`sha256 \`${asset}\``))
+    assert.match(r.stdout, /\| desktop-bytes \| 0\.1\.7-rc\.2 \| passed \|\n\| floor \| 0\.1\.1-rc\.2 \| passed \|\n\| pinned \|/)
+  })
+
+  it('refuses to claim a smoke of the release when a cell smoked other bytes, none, or not strictly', () => {
+    const other = notes({ floor: [smoked('0.1.1-rc.2')], pinned: [smoked('0.1.7-rc.2', { tarballSha256: 'b'.repeat(64) })] })
+    assert.equal(other.status, 1)
+    assert.match(other.stderr, /smoked a different tarball.*pinned/)
+    assert.match(notes({ pinned: [smoked('0.1.7-rc.2', { tarballSha256: undefined })] }).stderr, /pinned \(no digest\)/)
+    assert.match(notes({}).stderr, /no smoke results/)
+    assert.match(notes({ floor: [smoked('0.1.1-rc.2', { strict: false })] }).stderr, /did not pass a strict smoke: floor/)
   })
 })
 

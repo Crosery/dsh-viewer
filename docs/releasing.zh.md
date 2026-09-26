@@ -13,9 +13,11 @@
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-剩下的交给 `.github/workflows/release.yml`，分两个任务。
+剩下的交给 `.github/workflows/release.yml`，分三个任务，围绕**只打包一次的同一个 tarball**。
 
-**`gate`** 对 tag 自己的代码树调用 `harness-compat.yml`。以下全部通过之前，什么都不会附加：
+**`pack`** **在 tag 与 `package.json` 不一致时直接拒绝**，然后跑 typecheck、测试和不变量；在 `npm run build` 之前先跑 `npm run check:dist`，并要求构建不改动 `lib/`；最后打包出 `dsh-viewer.tgz`，记下它的 sha256。
+
+**`gate`** 对 tag 自己的代码树调用 `harness-compat.yml`，其中每一次启动冒烟安装的都是 `pack` 打出的那个 tarball，而不是另行打包。以下全部通过之前，什么都不会附加：
 
 - 在 `pinned` 版本、`0.1.1-rc.2` 最低线、以及桌面版当天分发的版本上跑四个阶段（types、tests、peer 接纳、启动冒烟）；
 - 对桌面版压缩包本身跑启动冒烟（`desktop-bytes`，macOS）；
@@ -23,9 +25,9 @@ git tag v0.2.0 && git push origin v0.2.0
 
 一个推论：上次扫描之后才发布的新 harness 元组，会让门禁的 `admission` 阶段失败，直到范围接纳它为止。这是有意的。先验证它并放宽范围（见 [harness-compatibility.zh.md](harness-compatibility.zh.md)），或者等那件事做完再重跑发版。
 
-**`release`** 再跑一遍 typecheck、测试、不变量、构建和 `lib/` 新鲜度检查。**tag 与 `package.json` 不一致直接拒绝**，然后打包并附加 tarball。新 release 的说明开头是一张表，列出门禁冒烟过的确切 harness 版本。发 npm 是单独的显式开关，只有仓库变量 `NPM_PUBLISH` 为 `true` 时才会执行（见 [npm](#npm)）。发布 release 本身从不依赖 npm 可达。
+**`release`** 先核对要附加的 tarball 的 sha256 与 `pack` 记下的一致，再附加它。新 release 的说明开头是一张表，列出门禁冒烟过的确切 harness 版本，并写明这个 sha256；只要有一次冒烟记录的是别的字节，`scripts/release-notes.mjs` 就让发版失败。发 npm 是单独的显式开关，发布的也是同一个 tarball，只有仓库变量 `NPM_PUBLISH` 为 `true` 时才会执行（见 [npm](#npm)）。发布 release 本身从不依赖 npm 可达。
 
-构建产物是**提交进仓库**的，所以 tag 本身就能用官方 git 命令装。`npm run build` 写出 `src/` 当前的含义，`npm run check:dist` 负责拒绝 `lib/` 与之**不一致**的提交，CI 两个都跑。
+构建产物是**提交进仓库**的，所以 tag 本身就能用官方 git 命令装。`npm run build` 写出 `src/` 当前的含义，`npm run check:dist` 负责拒绝 `lib/` 与之**不一致**的提交。CI 先跑 `check:dist`，因为 `npm run build` 会原地重写 `lib/`，之后再比较，过期的提交也会显得一致；构建之后如果 `lib/` 有改动，CI 同样失败。
 
 ## 为什么资产名不带版本号
 

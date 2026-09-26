@@ -86,6 +86,10 @@ on:
         description: 'Ref to test; the caller''s ref when empty'
         type: string
         default: ''
+      tarball-artifact:
+        description: 'An artifact of this run holding dsh-viewer.tgz to smoke instead of packing the checkout — the release gate smokes the exact file it releases'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -208,6 +212,15 @@ jobs:
           VERSION: ${{ steps.target.outputs.version }}
         run: node scripts/harness-target.mjs "$VERSION" --admits
 
+      - name: Fetch the tarball under test
+        id: tarball
+        if: inputs.tarball-artifact != '' && matrix.smoke && steps.target.outputs.incomplete != 'true' && steps.install.outputs.incomplete != 'true'
+        timeout-minutes: 5
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.tarball-artifact }}
+          path: ${{ runner.temp }}/tarball
+
       # The harness install gets 2 minutes on the peer graph, then legacy peer
       # mode; every other command 10 minutes; the boot 4 (scripts/smoke-boot.mjs).
       - name: Boot smoke
@@ -218,10 +231,11 @@ jobs:
         env:
           VERSION: ${{ steps.target.outputs.version }}
           SMOKE_RESULT: ${{ runner.temp }}/smoke.jsonl
+          TARBALL: ${{ inputs.tarball-artifact != '' && format('{0}/tarball/dsh-viewer.tgz', runner.temp) || '' }}
         run: |
           # Never pack a repointed manifest: the smoke installs what a user gets.
           git checkout -- package.json package-lock.json
-          node scripts/smoke-boot.mjs --dsh "$VERSION"
+          node scripts/smoke-boot.mjs --dsh "$VERSION" ${TARBALL:+--tarball "$TARBALL"}
 
       - if: always() && steps.target.outputs.version != ''
         uses: actions/upload-artifact@v4
@@ -251,6 +265,7 @@ jobs:
           STAGE_types: ${{ steps.types.outcome }}
           STAGE_tests: ${{ steps.tests.outcome }}
           STAGE_admission: ${{ steps.admission.outcome }}
+          STAGE_tarball: ${{ steps.tarball.outcome }}
           STAGE_smoke: ${{ steps.smoke.outcome }}
         with:
           script: await require('./scripts/harness-verdict.cjs')({ github, context, core })
@@ -341,6 +356,15 @@ jobs:
             if (r.release.version !== feed || dsh !== feed) { console.error("::error::the app bundles " + dsh + " (" + r.release.version + ") but its feed announces " + feed); process.exit(1) }
           ' "$RES/app.asar/dsh" "$VERSION"
 
+      - name: Fetch the tarball under test
+        id: tarball
+        if: inputs.tarball-artifact != ''
+        timeout-minutes: 5
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.tarball-artifact }}
+          path: ${{ runner.temp }}/tarball
+
       - name: Boot smoke on the desktop runtime
         id: smoke
         timeout-minutes: 30
@@ -350,13 +374,14 @@ jobs:
           HARNESS: ${{ steps.runtime.outputs.harness }}
           PNPM_MJS: ${{ steps.runtime.outputs.pnpm }}
           SMOKE_RESULT: ${{ runner.temp }}/smoke.jsonl
+          TARBALL: ${{ inputs.tarball-artifact != '' && format('{0}/tarball/dsh-viewer.tgz', runner.temp) || '' }}
         run: |
           # `dsh plugin` runs whatever pnpm is on PATH: make that the app's own.
           mkdir -p "$RUNNER_TEMP/bin"
           printf '#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec "%s" "%s" "$@"\n' "$EXE" "$PNPM_MJS" > "$RUNNER_TEMP/bin/pnpm"
           chmod +x "$RUNNER_TEMP/bin/pnpm"
           export PATH="$RUNNER_TEMP/bin:$PATH"
-          ELECTRON_RUN_AS_NODE=1 "$EXE" scripts/smoke-boot.mjs --harness-dir "$HARNESS"
+          ELECTRON_RUN_AS_NODE=1 "$EXE" scripts/smoke-boot.mjs --harness-dir "$HARNESS" ${TARBALL:+--tarball "$TARBALL"}
 
       - if: always()
         uses: actions/upload-artifact@v4
@@ -382,6 +407,7 @@ jobs:
           STAGE_feed: ${{ steps.feed.outcome }}
           STAGE_download: ${{ steps.download.outcome }}
           STAGE_runtime: ${{ steps.runtime.outcome }}
+          STAGE_tarball: ${{ steps.tarball.outcome }}
           STAGE_smoke: ${{ steps.smoke.outcome }}
         with:
           script: await require('./scripts/harness-verdict.cjs')({ github, context, core })

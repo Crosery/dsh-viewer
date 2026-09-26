@@ -13,9 +13,11 @@
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-`.github/workflows/release.yml` takes it from there, in two jobs.
+`.github/workflows/release.yml` takes it from there, in three jobs, around **one tarball packed once**.
 
-**`gate`** calls `harness-compat.yml` on the tag's own tree. Nothing is attached until every part passes:
+**`pack`** **refuses a tag that disagrees with `package.json`**, runs typecheck, tests and invariants, runs `npm run check:dist` before `npm run build` and requires the build to leave `lib/` unchanged, then packs `dsh-viewer.tgz` and records its sha256.
+
+**`gate`** calls `harness-compat.yml` on the tag's own tree, and every boot smoke in it installs that packed tarball, not a fresh pack. Nothing is attached until every part passes:
 
 - the four stages (types, tests, peer admission, boot smoke) on the `pinned` train, the `0.1.1-rc.2` floor, and the version the desktop app ships that day;
 - the boot smoke on the desktop zip itself (`desktop-bytes`, macOS);
@@ -23,9 +25,9 @@ git tag v0.2.0 && git push origin v0.2.0
 
 One consequence: a new harness tuple published after the last sweep fails the gate's `admission` stage until the ranges admit it. That is intended. Verify it and widen the ranges ([harness-compatibility.md](harness-compatibility.md)), or re-run the release once that is done.
 
-**`release`** repeats typecheck, tests, invariants, build and the `lib/` freshness check. It **refuses a tag that disagrees with `package.json`**, then packs and attaches the tarball. A new release's notes start with a table of the exact harness versions the gate smoked. npm publishing is a separate opt-in that only runs when the repository variable `NPM_PUBLISH` is `true` (see [npm](#npm)). A release never depends on npm being reachable.
+**`release`** checks that the tarball it attaches has the sha256 `pack` recorded, then attaches it. A new release's notes start with a table of the exact harness versions the gate smoked and name that sha256; `scripts/release-notes.mjs` fails the release if any smoke recorded different bytes. npm publishing is a separate opt-in that publishes the same tarball and only runs when the repository variable `NPM_PUBLISH` is `true` (see [npm](#npm)). A release never depends on npm being reachable.
 
-The built halves are **committed**, so the tag itself is installable by the official git command. `npm run build` writes what `src/` currently means; `npm run check:dist` refuses a commit whose `lib/` disagrees with it, and CI runs both.
+The built halves are **committed**, so the tag itself is installable by the official git command. `npm run build` writes what `src/` currently means; `npm run check:dist` refuses a commit whose `lib/` disagrees with it. CI runs `check:dist` first, because `npm run build` rewrites `lib/` in place and a stale commit would compare equal afterwards, and then fails if the build changed `lib/`.
 
 ## Why the asset name carries no version
 
