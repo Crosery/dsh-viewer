@@ -57,7 +57,7 @@ dsh plugin --profile web add https://github.com/Crosery/dsh-viewer/releases/late
 
 **桌面版**：打开**插件 → 添加插件**，粘贴上面那条 release 压缩包地址。`dsh` 命令行拒绝操作桌面 profile（`profile "desktop" is managed exclusively by the Electron application`），所以这是唯一的入口。在那里升级已装插件需要重启应用。
 
-**harness 0.1.7（包括桌面版）需要 0.2.0 或更新的版本。** 从 0.1.7 起 harness 会自己检查插件的 peer 范围，而 v0.1.1 的范围止于 0.1.6 以下：安装会被拒绝，已经装好的副本在启动时被悄无声息地跳过——对话照常，但什么文件都不会显示。
+**harness 0.1.7（包括桌面版）需要 0.2.0 或更新的版本。** 从 0.1.7 起 harness 会自己检查插件的 peer 范围，而 v0.1.1 的范围止于 0.1.6 以下：安装会被拒绝，已经装好的副本在启动时被悄无声息地跳过——对话照常，但什么文件都不会显示。**harness 0.0.1 与 0.1.0-rc.2 – rc.7 需要 0.3.0 或更新的版本**：更早的范围从 0.1.0-rc.8 起算。那些版本自己不检查范围，但 npm 和 pnpm 会。
 
 Office 渲染需要一个转换器。从 harness 0.1.6-alpha.2 起（包括桌面版），harness 自带的内置转换器就能处理 `doc` `docx` `xls` `xlsx` `ppt` `pptx`，什么都不用装。`rtf` 和三种 OpenDocument 格式，以及更早版本上的所有文档格式，仍需要 LibreOffice（`PATH` 上的 `soffice`，或 macOS 的应用包）：
 

@@ -63,7 +63,7 @@ dsh plugin --profile web add https://github.com/Crosery/dsh-viewer/releases/late
 
 **On the desktop app**, open **Plugins → Add plugin** and paste the release tarball URL above. The `dsh` CLI refuses the desktop profile (`profile "desktop" is managed exclusively by the Electron application`), so this is the only way in. Upgrading an installed plugin there needs an app restart.
 
-**Harness 0.1.7 — the desktop app included — needs 0.2.0 or later.** From 0.1.7 the harness checks a plugin's peer ranges itself, and v0.1.1's ranges stop below 0.1.6: installing it is refused, and an already-installed copy is skipped at boot without a word — the chat works, and nothing is ever displayed.
+**Harness 0.1.7 — the desktop app included — needs 0.2.0 or later.** From 0.1.7 the harness checks a plugin's peer ranges itself, and v0.1.1's ranges stop below 0.1.6: installing it is refused, and an already-installed copy is skipped at boot without a word — the chat works, and nothing is ever displayed. **Harness 0.0.1 and 0.1.0-rc.2 – rc.7 need 0.3.0 or later**: earlier ranges started at 0.1.0-rc.8. Those trains check no ranges themselves, but npm and pnpm do.
 
 Office rendering needs a converter. From harness 0.1.6-alpha.2 on — the desktop app included — the harness's own bundled converter handles `doc` `docx` `xls` `xlsx` `ppt` `pptx` with nothing else installed. `rtf` and the OpenDocument trio, and every format on older trains, need LibreOffice on `PATH` (or the macOS app bundle):
 
