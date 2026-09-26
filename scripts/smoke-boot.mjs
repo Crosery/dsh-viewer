@@ -301,6 +301,25 @@ const MOUNT_TIMEOUT_MS = 120_000
 const QUIET_MS = 5000
 
 /**
+ * Chrome itself going away mid-stage — a renderer or browser crash on a
+ * loaded machine — says nothing about the plugin. One fresh attempt, with a
+ * new profile, decides; any other failure, and a second crash, stands.
+ */
+const BROWSER_GONE = /Target page, context or browser has been closed|Browser has been closed|browser has disconnected|Target closed/i
+async function withBrowserRetry(stages, runOnce) {
+  try {
+    return await runOnce(1)
+  } catch (error) {
+    const failed = stages.map((name) => result.stages[name]).filter((s) => s?.outcome === 'failed')
+    const said = `${String(error?.message ?? error)} ${JSON.stringify(failed.map((s) => s.detail))}`
+    if (!BROWSER_GONE.test(said)) throw error
+    for (const name of stages) delete result.stages[name]
+    console.log('note: Chrome closed mid-stage; the browser stages run once more with a fresh profile')
+    return await runOnce(2)
+  }
+}
+
+/**
  * The browser half in a real browser. Headless Chrome, in a throwaway profile
  * under the smoke's temp directory, opens the tokenized URL; the shell must
  * mount the app — which every shell does only once each entry of its boot
@@ -310,7 +329,7 @@ const QUIET_MS = 5000
  * is about something else is the train's own and is reported, not held
  * against the plugin.
  */
-async function clientBoot(url) {
+async function clientBoot(url, attempt = 1) {
   // page.evaluate, response bodies and closing have no timeout of their own: a
   // hung renderer must fail this stage, not run out the job's clock.
   const bounded = (promise, what) => Promise.race([promise, new Promise((_, reject) => {
@@ -322,7 +341,7 @@ async function clientBoot(url) {
   } catch (error) {
     fail('client-boot', `playwright-core did not load (npm ci installs it): ${String(error?.message ?? error).split('\n')[0]}`)
   }
-  const profile = join(work, 'browser-profile')
+  const profile = join(work, `browser-profile-${attempt}`)
   assert.ok(profile.startsWith(realpathSync(tmpdir())), 'refusing a browser profile outside the temp directory')
   const executablePath = values.browser ?? process.env.CHROME_PATH
   let context
@@ -599,7 +618,7 @@ try {
   stage('client-exports', 'passed', unchecked.length > 0 ? `not installed with this harness, unchecked: ${unchecked.join(', ')}` : readsSeeds ? 'every seed member read is exported' : 'reads no named member of a harness seed module')
 
   // 8. The same bundle in a real browser, against the shell's own services.
-  await clientBoot(url)
+  await withBrowserRetry(['client-boot'], (attempt) => clientBoot(url, attempt))
 } catch (error) {
   if (!(error instanceof StageFailed)) stage('smoke', 'failed', mask(String(error?.message ?? error)).slice(0, 2000))
 } finally {
