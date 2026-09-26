@@ -5,7 +5,7 @@
 ## Cut a release
 
 1. Bump `version` in `package.json` (and `package-lock.json`, `npm install --package-lock-only`), and update the counts in both READMEs if anything changed.
-2. If the harness moved, run `node scripts/sweep-trains.mjs` and make `VERIFIED_TRAINS` in `scripts/check-invariants.mjs`, the peer ranges and [harness-compatibility.md](harness-compatibility.md) say the same thing. `npm run check` refuses a disagreement.
+2. If the harness moved, run `node scripts/sweep-trains.mjs` and make `ADMITTED_TRAINS` in `scripts/check-invariants.mjs`, the peer ranges and [harness-compatibility.md](harness-compatibility.md) say the same thing. `npm run check` refuses a disagreement.
 3. Merge to `main` with CI green.
 4. Tag and push:
 
@@ -21,7 +21,7 @@ git tag v0.2.0 && git push origin v0.2.0
 
 - the four stages (types, tests, peer admission, boot smoke) on the `pinned` train, the `0.1.1-rc.2` floor, and the version the desktop app ships that day;
 - the boot smoke on the desktop zip itself (`desktop-bytes`, macOS);
-- types, tests and peer admission on every published harness version the sweep finds, from the lowest the peer ranges admit, and the boot smoke on the newest version of each tuple. A version published incomplete upstream is neutral and does not block.
+- types, tests and peer admission on every published harness version the sweep finds, from the lowest the peer ranges admit, and the boot smoke on every one of them that installs. A version whose own `@deepseek-ai/dsh` does not install (`0.0.1-rc.1`, `0.0.1-rc.2`) is incomplete upstream: neutral, it does not block, and only its peer admission is judged.
 
 One consequence: a new harness tuple published after the last sweep fails the gate's `admission` stage until the ranges admit it. That is intended. Verify it and widen the ranges ([harness-compatibility.md](harness-compatibility.md)), or re-run the release once that is done.
 

@@ -37,12 +37,12 @@ happens at all.
 
 | 检查 | 触发 | 守住什么 |
 | --- | --- | --- |
-| `CI` → `node 22.19`、`node 24` | push、PR | 两个半边 typecheck、构建、165 个测试、不变量、产物新鲜度、客户端 bundle 纯度、打包产物内容 |
+| `CI` → `node 22.19`、`node 24` | push、PR | 两个半边 typecheck、构建、170 个测试、不变量、产物新鲜度、客户端 bundle 纯度、打包产物内容 |
 | `CI` → `harness / harness@pinned`、`harness / harness@floor` | push、PR | 在钉住的版本和 `0.1.1-rc.2` 最低线上：对着该版本的包跑类型检查和测试、两种 semver 规则下的 peer 接纳检查，以及打包后插件在真实 `dsh --profile web` 里的启动冒烟 |
 | `CI` → `desktop / harness@desktop` | push、PR | 在桌面版今天分发的版本上跑同样四个阶段。会显示，但不是必需检查：更新源可能在 PR 开着的时候变动 |
 | `PR review` → `invariants` | PR，含 fork | 同一套不变量检查，外部贡献者拿到一样的反馈 |
 | `PR review` → `claude` | 本仓库的 PR，且配了 `ANTHROPIC_API_KEY` | 判断题：展示器纯度、卡片降级、声明是否属实、测试能否证伪 |
-| `Harness compatibility` | 每天、每周、手动 | 每天：桌面版、npm 的 `latest` / `next` / `alpha`，以及桌面版压缩包本身；每周：每一个已发布的 harness 版本。负责开关 `upstream-drift` issue——见 [harness-compatibility.zh.md](harness-compatibility.zh.md) |
+| `Harness compatibility` | 每天、每周、手动 | 每天：桌面版、npm 的 `latest` / `next` / `alpha`，以及桌面版压缩包本身；每周：每一个已发布的 harness 版本，凡能装上的都跑启动冒烟。负责开关 `upstream-drift` issue——见 [harness-compatibility.zh.md](harness-compatibility.zh.md) |
 
 分支保护里的必需检查是两条 `node`、`harness / harness@pinned` 和 `harness / harness@floor`。
 

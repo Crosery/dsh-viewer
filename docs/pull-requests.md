@@ -37,12 +37,12 @@ Keep the branch rebased on `main` rather than merging `main` into it — the his
 
 | Check | Trigger | What it guards |
 | --- | --- | --- |
-| `CI` → `node 22.19`, `node 24` | push, PR | typecheck (both halves), build, 165 tests, invariants, dist freshness, client bundle purity, packed-tarball contents |
+| `CI` → `node 22.19`, `node 24` | push, PR | typecheck (both halves), build, 170 tests, invariants, dist freshness, client bundle purity, packed-tarball contents |
 | `CI` → `harness / harness@pinned`, `harness / harness@floor` | push, PR | on the pinned train and on the `0.1.1-rc.2` floor: typecheck and tests against that version's packages, peer admission under both semver rules, and a boot smoke of the packed plugin in a real `dsh --profile web` |
 | `CI` → `desktop / harness@desktop` | push, PR | the same four stages on the version the desktop app ships today. Visible, but not a required check: the feed can move under an open PR |
 | `PR review` → `invariants` | PR, forks included | the same invariant checker, so an external contributor gets the same feedback |
 | `PR review` → `claude` | PR from this repo, only when `ANTHROPIC_API_KEY` exists | judgement: purity of display projections, card degradation, claim accuracy, whether the tests could falsify anything |
-| `Harness compatibility` | daily, weekly, manual | daily: the desktop app, npm `latest` / `next` / `alpha`, and the desktop zip itself; weekly: every published harness version. Opens and closes `upstream-drift` issues — see [harness-compatibility.md](harness-compatibility.md) |
+| `Harness compatibility` | daily, weekly, manual | daily: the desktop app, npm `latest` / `next` / `alpha`, and the desktop zip itself; weekly: every published harness version, with a boot smoke on every one that installs. Opens and closes `upstream-drift` issues — see [harness-compatibility.md](harness-compatibility.md) |
 
 The required checks in branch protection are the two `node` legs, `harness / harness@pinned` and `harness / harness@floor`.
 

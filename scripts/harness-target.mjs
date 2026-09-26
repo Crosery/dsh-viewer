@@ -8,7 +8,7 @@
  *
  * Cells:
  *   pinned              what devDependencies pin — the pull-request baseline
- *   floor               0.1.1-rc.2, the oldest train with live evidence
+ *   floor               0.1.1-rc.2, the train the owner runs every day
  *   desktop             what the official desktop app's update feed ships today
  *   latest|next|alpha   an npm dist-tag of @deepseek-ai/dsh
  *   <exact version>     one published @deepseek-ai/dsh version (sweep rows)
@@ -21,10 +21,14 @@
  * that package is the Web app the desktop boots, so its version is the Web
  * version that matches the desktop.
  *
- * --repoint  rewrites every `@deepseek-ai/dsh-*` devDependency to the exact
- *            version (cordis and schemastery to what that train ships), pins
- *            every other devDependency to what package-lock.json resolved, and
- *            writes the exact versions to the step summary.
+ * --repoint  rewrites every `@deepseek-ai/dsh-*` devDependency the train
+ *            published to the exact version — one it never published keeps
+ *            this repository's pin, for types (`kept`) — adds
+ *            `dsh-client-runtime` where the train has it, takes cordis and
+ *            schemastery from what that train ships, pins every other
+ *            devDependency to what package-lock.json resolved, and writes the
+ *            exact versions to the step summary. It also checks that
+ *            `@deepseek-ai/dsh` at that version installs on its own.
  * --install  installs the result from scratch (`npm ci` for `pinned`), through
  *            the train's own `@deepseek-ai/dsh` graph if its peers do not
  *            resolve on their own — see `installTrain`.
@@ -38,12 +42,15 @@
  * Exit 0 ok, 1 hard failure, 3 the train is not (yet) published in full:
  * incomplete, which CI reports as neutral — neither drift nor green.
  *
- * Incomplete means npm answered, and answered "not there": the version or a
- * package this plugin needs does not exist (E404, or the version list lacks
- * it), or the train's own graph does not install (see `installTrain`). A
- * registry that did not answer is a hard failure, never incomplete. `pinned`
- * and `floor` are never incomplete either: they name versions this plugin
- * claims, so a package missing there is a failure.
+ * Incomplete means npm answered, and answered "not there": the version does
+ * not exist (E404, or the version list lacks it), or `@deepseek-ai/dsh` at
+ * that version does not install on its own (0.0.1-rc.1 and rc.2 depend on a
+ * `dsh-agent-tool-mode` that was never published), or the repointed copy and
+ * the bare harness both fail (see `installTrain`). An incomplete train whose
+ * every compiled-against package exists still gets types and tests
+ * (`compiles=true`); smoke stands down. A registry that did not answer is a
+ * hard failure, never incomplete. `pinned` and `floor` are never incomplete
+ * either: they name versions this plugin claims, so a failure there is one.
  */
 
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
@@ -53,7 +60,7 @@ import { parseArgs } from 'node:util'
 import semver from 'semver'
 import {
   DESKTOP_FEEDS, DIST_TAGS, FLOOR, HARNESS, RegistryError,
-  describeRefusals, harnessPeers, harnessVersions, installTrain, parseFeed, planCells, refusals, repointManifest, run, sweepStart, tail, view,
+  describeRefusals, harnessInstallable, harnessPeers, harnessVersions, installTrain, parseFeed, planCells, refusals, repointManifest, run, sweepStart, tail, view,
 } from './harness-lib.mjs'
 
 const INCOMPLETE = 3
@@ -81,7 +88,13 @@ function out(key, value) {
 function summary(text) {
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${text}\n`)
 }
-class Incomplete extends Error {}
+class Incomplete extends Error {
+  /** @param {string} message @param {{ compiles?: boolean }} [facts] - whether types and tests can still run there */
+  constructor(message, { compiles = false } = {}) {
+    super(message)
+    this.compiles = compiles
+  }
+}
 
 async function feed(platform) {
   const url = DESKTOP_FEEDS[platform]
@@ -160,9 +173,9 @@ async function target(cell) {
   // What this plugin claims cannot be incomplete: absent there is broken. The
   // install step names the floor by its version, as it does every other cell.
   const claimed = cell === 'pinned' || cell === 'floor' || version === FLOOR
-  const incomplete = (message) => (claimed
+  const incomplete = (message, facts) => (claimed
     ? new Error(`${message} — and ${version} is a version this plugin claims (${cell === 'pinned' ? 'pinned' : 'the floor'}), so that is a failure, not an incomplete train`)
-    : new Incomplete(message))
+    : new Incomplete(message, facts))
 
   // The Web app at the same version must exist, or there is nothing to test.
   if (cell !== 'pinned' && !harnessVersions().includes(version)) {
@@ -175,13 +188,22 @@ async function target(cell) {
     // a failed install may have removed the lockfile before a later step runs.
     const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'))
     const repointed = repointManifest(pkg, version, lock)
-    if (repointed.missing.length > 0) {
-      const missing = repointed.missing.map((m) => `${m.name} (${m.why})`).join(', ')
-      out('missing', missing)
-      throw incomplete(`not published at ${version}: ${missing}`)
+    if (repointed.kept.length > 0) {
+      const kept = repointed.kept.map((k) => `${k.name}@${k.pin} (${k.why} at ${version})`).join(', ')
+      out('kept', kept)
+      summary(`- kept at this repository's pin, for types: ${kept}`)
     }
     manifest = repointed.manifest
     writeFileSync(pkgPath, JSON.stringify(manifest, null, 2) + '\n')
+    // The train itself, with nothing of ours: a train nobody can install is
+    // incomplete, whatever this plugin does. Asked once, when the cell
+    // resolves — the install step of a train that `compiles` must go ahead.
+    if (flags.repoint) {
+      const own = harnessInstallable(version)
+      if (!own.ok) {
+        throw incomplete(`${HARNESS}@${version} does not install on its own:\n${own.evidence}`, { compiles: repointed.kept.length === 0 })
+      }
+    }
   }
   if (flags.repoint || flags.install) {
     const exact = Object.entries(manifest.devDependencies).filter(([n]) => n.startsWith('@deepseek-ai/'))
@@ -238,6 +260,7 @@ try {
   const message = String(error?.message ?? error)
   if (error instanceof Incomplete) {
     out('incomplete', 'true')
+    if (error.compiles) out('compiles', 'true')
     summary(`- incomplete, not drift: ${message.split('\n')[0]}`)
     console.log(`::notice title=incomplete harness train::${message.split('\n')[0]}`)
     if (message.includes('\n')) console.log(message)

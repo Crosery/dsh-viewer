@@ -17,9 +17,9 @@ import semver from 'semver'
 export const HARNESS = '@deepseek-ai/dsh'
 
 /**
- * The oldest train with live evidence, and the one the owner runs every day.
- * It gates pull requests next to the pinned train; the sweep reaches further
- * back, down to the lowest version the peer ranges admit.
+ * The train the owner runs every day. It gates pull requests next to the
+ * pinned train; the sweep reaches further back, down to the lowest version
+ * the peer ranges admit — every published one.
  */
 export const FLOOR = '0.1.1-rc.2'
 
@@ -105,7 +105,9 @@ export function tupleHeads(versions) {
  *
  * Named cells always run the boot smoke. Sweep rows run it per `smoke`:
  * `heads` (default) — the floor, the newest version of each tuple and whatever
- * desktop / latest / next / alpha resolve to; `all`; or `none`.
+ * desktop / latest / next / alpha resolve to; `all` — every row, which the
+ * weekly sweep and the release gate use; or `none`. A row whose train turns
+ * out not to install stands its smoke down at run time either way.
  *
  * @param {string[]} cells
  * @param {{ published: string[], sweepFrom: string, pinned?: string, resolved?: Record<string, string | undefined> }} facts
@@ -293,35 +295,92 @@ export function tail(text, lines = 6) {
 }
 
 /**
+ * Packages a repointed copy adds at the train's version wherever the train
+ * publishes them, although this repository does not depend on them.
+ *
+ * `dsh-client-runtime` declares the client `slots` and `sessions` services up
+ * to 0.1.1-rc.2, and the early client packages this plugin compiles against
+ * (`dsh-client-ui-tool`, `dsh-client-locale`) reach it only as a caret peer —
+ * which npm resolves to the newest prerelease of the tuple: 0.1.0-rc.8's on a
+ * 0.1.0-rc.2 train. Pinned, the types are that train's own. It stopped
+ * publishing after 0.1.1-rc.2, so it cannot be a devDependency.
+ */
+export const TRAIN_ONLY = ['@deepseek-ai/dsh-client-runtime']
+
+/**
  * A copy of the manifest whose `@deepseek-ai/dsh-*` devDependencies name one
  * exact version, with cordis and schemastery taken from that version's own
  * `@deepseek-ai/dsh` manifest so a train that moved them is compiled against
- * what it ships, and every other devDependency pinned to what `lock` — this
- * repository's package-lock.json — resolved ({@link pinToolchain}). `missing`
- * lists harness devDependencies the train never published; with any of them
- * the plugin cannot be built there as-is.
+ * what it ships, {@link TRAIN_ONLY} packages added where the train has them,
+ * and every other devDependency pinned to what `lock` — this repository's
+ * package-lock.json — resolved ({@link pinToolchain}).
+ *
+ * A harness devDependency the train never published keeps this repository's
+ * pin, and `kept` names it with the reason. That is a statement about types
+ * only: `dsh-client-ui-renderer` (first published at 0.1.0-rc.8) is imported
+ * type-only for the `slots` declaration, and on the trains before it the same
+ * service comes from `dsh-client-runtime`. Whether the plugin runs on such a
+ * train is the boot smoke's question; whether the train can be installed at
+ * all is {@link harnessInstallable}'s.
  */
 export function repointManifest(pkg, version, lock) {
   const manifest = pinToolchain(pkg, lock)
   const harnessDeps = Object.keys(manifest.devDependencies).filter((name) => name.startsWith('@deepseek-ai/dsh-'))
-  const missing = harnessDeps
-    .filter((name) => !versionsOf(name).includes(version))
-    .map((name) => ({ name, why: absence(name, version) }))
-  for (const name of harnessDeps) manifest.devDependencies[name] = version
+  const kept = []
+  for (const name of harnessDeps) {
+    if (versionsOf(name).includes(version)) manifest.devDependencies[name] = version
+    else kept.push({ name, pin: manifest.devDependencies[name], why: absence(name, version) })
+  }
+  for (const name of TRAIN_ONLY) {
+    if (!(name in manifest.devDependencies) && versionsOf(name).includes(version)) manifest.devDependencies[name] = version
+  }
   const shipped = view(`${HARNESS}@${version}`, 'dependencies') ?? {}
   for (const name of ['@deepseek-ai/cordis', '@deepseek-ai/schemastery']) {
     if (typeof shipped[name] === 'string') manifest.devDependencies[name] = shipped[name]
   }
-  return { manifest, missing }
+  return { manifest, kept }
 }
 
-/** Whether `@deepseek-ai/dsh` itself resolves at a version, with nothing of ours involved. */
-export function bareHarnessInstalls(version, work) {
+/**
+ * The npm error lines of a failed install that say what is missing or
+ * conflicting — the evidence an incomplete train is reported with.
+ */
+export function graphEvidence(output) {
+  const lines = String(output).split('\n').filter((line) => /^npm (?:error|ERR!)/.test(line) && /\b(?:E404|ETARGET|ERESOLVE|404|notarget|No matching version|Could not resolve|Conflicting peer)\b/.test(line))
+  return (lines.length > 0 ? lines : String(output).trim().split('\n').slice(-3)).slice(0, 3).map((line) => line.trim()).join('\n')
+}
+
+/**
+ * Whether the train itself can be installed: `@deepseek-ai/dsh@<version>` on
+ * its own, today's graph, nothing of ours involved. `{ ok }` when it can;
+ * `{ ok: false, evidence }` when npm answered that it cannot (E404, ETARGET)
+ * — 0.0.1-rc.1 and rc.2 depend on `dsh-agent-tool-mode`, which was never
+ * published, so nobody can install either. A registry that did not answer
+ * throws {@link RegistryError}; anything else (a timeout) is an Error: neither
+ * proves the train incomplete.
+ *
+ * Legacy peer mode, as the boot smoke falls back to: `@deepseek-ai/dsh` pins
+ * every package it composes, so its peer graph adds nothing the train needs,
+ * and resolving it costs 70–90 s a version where this takes 5–30.
+ */
+export function harnessInstallable(version) {
+  const bare = bareHarnessInstalls(version, undefined, { legacyPeers: true })
+  if (bare.ok) return { ok: true }
+  if (registryFailed(bare.output)) throw new RegistryError(`npm could not reach the registry to install ${HARNESS}@${version} on its own:\n${tail(bare.output, 12)}`)
+  if (bare.timedOut || !graphFailed(bare.output)) throw new Error(`${HARNESS}@${version} on its own did not install, for no reason npm names (${bare.timedOut ? 'timed out' : 'not a graph failure'}):\n${tail(bare.output, 12)}`)
+  return { ok: false, evidence: graphEvidence(bare.output) }
+}
+
+/**
+ * Whether `@deepseek-ai/dsh` itself resolves at a version, with nothing of ours
+ * involved; with `legacyPeers`, without resolving its peer graph.
+ */
+export function bareHarnessInstalls(version, work, { legacyPeers = false } = {}) {
   const dir = work ?? mkdtempSync(join(tmpdir(), 'dsh-bare-'))
   try {
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'bare', version: '0.0.0', private: true }))
-    return run(dir, 'npm', ['install', '--dry-run', '--ignore-scripts', '--no-audit', '--no-fund', `${HARNESS}@${version}`])
+    return run(dir, 'npm', ['install', '--dry-run', '--ignore-scripts', '--no-audit', '--no-fund', ...(legacyPeers ? ['--legacy-peer-deps'] : []), `${HARNESS}@${version}`])
   } finally {
     if (work === undefined) rmSync(dir, { recursive: true, force: true })
   }

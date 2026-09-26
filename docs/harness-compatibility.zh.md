@@ -4,40 +4,55 @@
 
 ## 本插件支持到哪
 
-**Web 端**：从 `0.1.0-rc.8` 到 `0.1.7-rc.2` 的每一个已发布 harness 版本。**桌面版**：`0.1.7-rc.2`，即它的更新源今天分发的构建。桌面版启动的就是同版本的 `@deepseek-ai/dsh` Web 应用，所以「桌面版的版本」和「它对应的 Web 版本」是同一个版本。
+**Web 端**：每一个已发布的 harness 版本，从 `0.0.1-rc.1` 到 `0.1.7-rc.2`。其中凡是能装上的（`0.0.1-rc.5` 及以后），都能安装、启动并渲染卡片。`0.0.1-rc.1` 和 `0.0.1-rc.2` 也被接纳，但谁都跑不起来：它们自己的 `@deepseek-ai/dsh` 依赖 `@deepseek-ai/dsh-agent-tool-mode`，而这个包从未发布，`npm install @deepseek-ai/dsh@0.0.1-rc.1` 回答 `E404`。**桌面版**：`0.1.7-rc.2`，即它的更新源今天分发的构建。桌面版启动的就是同版本的 `@deepseek-ai/dsh` Web 应用，所以「桌面版的版本」和「它对应的 Web 版本」是同一个版本。
 
-| 元组 | 已验证版本 | 类型 + 测试 | 启动冒烟 | 浏览器实测 |
+| 元组 | 版本 | 类型 + 测试 | 启动冒烟 | 浏览器实测 |
 | --- | --- | --- | --- | --- |
-| 0.1.0 | `0.1.0-rc.8` | 是 | `0.1.0-rc.8` | — |
+| 0.0.1 | `0.0.1-rc.1`、`0.0.1-rc.2` | 上游发布不完整：harness 本身装不上 | — | — |
+| 0.0.1 | `0.0.1-rc.5` | 是 | `0.0.1-rc.5` | `0.0.1-rc.5` |
+| 0.1.0 | `0.1.0-rc.2`、`0.1.0-rc.3`、`0.1.0-rc.6`、`0.1.0-rc.7`、`0.1.0-rc.8` | 是 | 每一个 | `0.1.0-rc.2`、`0.1.0-rc.6` |
 | 0.1.1 | `0.1.1-rc.1`、`0.1.1-rc.2` | 是 | `0.1.1-rc.2`（最低线） | `0.1.1-rc.2`，v0.1.1 时 |
 | 0.1.2 | `0.1.2-alpha.2`、`0.1.2-alpha.3`、`0.1.2-alpha.4`、`0.1.2-alpha.5`、`0.1.2-rc.1` | 是 | `0.1.2-rc.1` | — |
 | 0.1.3 | `0.1.3-alpha.2` | 是 | `0.1.3-alpha.2` | — |
 | 0.1.5 | `0.1.5-alpha.1`、`0.1.5-alpha.2`、`0.1.5-rc.1`、`0.1.5-rc.2`、`0.1.5-rc.3` | 是 | `0.1.5-rc.3` | `0.1.5-rc.2`，v0.1.1 时 |
 | 0.1.6 | `0.1.6-alpha.1`、`0.1.6-alpha.2` | 是 | `0.1.6-alpha.2` | — |
-| 0.1.7 | `0.1.7-alpha.1`、`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2` | 是 | `0.1.7-alpha.2`；`0.1.7-rc.2`，npm 安装的和桌面版自带的各一次 | `0.1.7-rc.2`，Web 与桌面版 |
+| 0.1.7 | `0.1.7-alpha.1`、`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2` | 是 | `0.1.7-rc.2`，npm 安装的和桌面版自带的各一次 | `0.1.7-rc.2`，Web 与桌面版 |
 
-「类型 + 测试」指把每个 `@deepseek-ai/dsh-*` devDependency 精确改指到该版本后，两份类型检查和整套测试都通过（`node scripts/sweep-trains.mjs`）。每一列的证据见 [acceptance.zh.md](acceptance.zh.md)。CI 每周的全量扫描会把这两列都重新证明一遍：每个版本上的类型与测试，每个元组最新版本上的启动冒烟。
+「类型 + 测试」指把每个 `@deepseek-ai/dsh-*` devDependency 精确改指到该版本后，两份类型检查和整套测试都通过（`node scripts/sweep-trains.mjs`）。「启动冒烟」一列是本次发版在本地跑过的；CI 每周的全量扫描和发版门禁会启动**每一个**能装上的版本。每一列的证据见 [acceptance.zh.md](acceptance.zh.md)。
+
+### 0.1.0-rc.8 之前的版本
+
+到 `0.1.0-rc.7` 为止，harness 的前端是另一套：`dsh-client-web` 外壳，slot 注册表由 `@deepseek-ai/dsh-client-runtime` 声明，没有 `@deepseek-ai/dsh-client-ui-renderer`（`0.1.0-rc.8` 才首次发布）。这些都碰不到本插件：
+
+- **浏览器半边只需要两个服务：`slots` 和 `locale`**，每个版本都有。renderer 包只做仅类型导入，取的是 `slots` 的声明。在从未发布它的版本上，类型检查保留本仓库钉住的那个 renderer 版本，并把 `dsh-client-runtime` 钉到该版本——那几个版本正是在这里声明 `slots` 的；构建产物从来不含它的任何值。
+- **`dsh.client.inject` 仍然写着 renderer。** 这份清单只是依赖图元数据：客户端 fiber 等的是入口注入的服务，不是包名。启动冒烟在这些版本上报告这个名字不存在，然后照常加载 bundle。
+- **外壳的模块表回答 10 个标识符**（react、它的 JSX runtime、react-dom，外加另外七个），是本 bundle 需要的三个的超集。
+- **0.1.1 及以前的 settings 接口是 `ctx.settings.register`**，`mountSettingsSection` 本来就会驱动它。
+
+`0.1.0-rc.2` – `rc.7` 有两张安装依赖图。按发布时的样子（`--graph released`，冒烟用的就是这个），每个版本解析到自己的子包；今天全新安装时，它们的脱字符依赖会解析到 `0.1.0-rc.8` 的子包。两张图都查过，见 [acceptance.zh.md](acceptance.zh.md)。
 
 以下不支持，各有证据：
 
-- **`0.0.1-rc.x`**。插件机制在那里已经存在（0.0.1-rc.5 就有客户端模块和 profile bundle），但浏览器半边编译依赖并注入的 `@deepseek-ai/dsh-client-ui-renderer` 到 `0.1.0-rc.8` 才首次发布；0.0.1-rc.1 与 rc.2 还缺 `@deepseek-ai/dsh-home-paths`。peer 范围拒绝这三个版本。
-- **`0.1.0-rc.2` – `0.1.0-rc.7`** 同样早于这个 renderer 包，本插件在那里根本构建不出来。0.1.0 的比较器从 `0.1.0-rc.8` 起算，peer 范围拒绝它们。
 - **`0.1.4`** 从未发布，范围里也没有对应它的比较器。
 - **`0.1.8` 及以后**要等扫描验证过才接纳。在那之前范围拒绝它们，而 dsh ≥0.1.7 会强制执行这一点（见下一节）。
 
-peer 范围，每个 `@deepseek-ai/dsh-*` peer 都一样：
+peer 范围，每个 `@deepseek-ai/dsh-*` peer 都一样，每个元组一组比较器：
 
 ```text
->=0.1.0-rc.8 <0.1.1-0 || >=0.1.1-rc.0 <0.1.2-0 || >=0.1.2-alpha.0 <0.1.3-0 || >=0.1.3-alpha.0 <0.1.4-0 || >=0.1.5-alpha.0 <0.1.6-0 || >=0.1.6-alpha.0 <0.1.7-0 || >=0.1.7-alpha.0 <0.1.8-0
+>=0.0.1-rc.0 <0.0.2-0 || >=0.1.0-rc.0 <0.1.1-0 || >=0.1.1-rc.0 <0.1.2-0 || >=0.1.2-alpha.0 <0.1.3-0 || >=0.1.3-alpha.0 <0.1.4-0 || >=0.1.5-alpha.0 <0.1.6-0 || >=0.1.6-alpha.0 <0.1.7-0 || >=0.1.7-alpha.0 <0.1.8-0
 ```
 
-`npm run check` 断言：这个范围在两种 semver 规则下都接纳上表每个已验证版本，并拒绝支持范围外的每个构建。
+`npm run check` 断言：这个范围在两种 semver 规则下都接纳上表每个已发布版本，拒绝支持范围外的每个构建，并且每个元组保持一组带预发布下限的比较器。
+
+没有哪个 peer 是可选的。dsh ≥0.1.7 的 `evaluatePluginCompatibility` 不看 `peerDependenciesMeta`，每个 `@deepseek-ai/dsh*` peer 都拿去比对运行中的版本，所以把某个 peer 标成可选不会让 0.1.7 拒绝本插件，但也不会让任何版本变得更能用。唯一在某些已发布版本上缺席的 peer 是 `@deepseek-ai/dsh-home-paths`：`0.0.1-rc.1` 和 `rc.2` 上没有，而 Host 半边对它是值导入；那两个版本本来就装不上。
 
 ### 自身 peer 图解析不了的版本
 
-`0.1.1-rc.1`、`0.1.2-alpha.2` – `alpha.5`、`0.1.5-alpha.1` – `rc.2`、`0.1.6-alpha.1` 和 `0.1.7-alpha.1` 发布的 harness 包带脱字符 peer（`^0.1.1-rc.1`）。npm 自动安装 peer 时会拉进同一元组里更晚的预发布，而那个版本自己的 peer 又和被固定的版本冲突，`npm install` 于是以 `ERESOLVE` 中止。本页早先的版本因此把其中几条称为「发布不完整」。
+`0.1.0-rc.6`、`0.1.0-rc.7`、`0.1.1-rc.1`、`0.1.2-alpha.2` – `alpha.5`、`0.1.5-alpha.1` – `rc.2`、`0.1.6-alpha.1` 和 `0.1.7-alpha.1` 发布的 harness 包带脱字符 peer（`^0.1.1-rc.1`）。npm 自动安装 peer 时会拉进同一元组里更晚的预发布，而那个版本自己的 peer 又和被固定的版本冲突，`npm install` 于是以 `ERESOLVE` 中止。本页早先的版本因此把其中几条称为「发布不完整」。
 
-harness 从来不跑那张图。`@deepseek-ai/dsh` 把它组合的每个包都钉在同一个精确版本上。所以 peer 图失败时（`ERESOLVE`、npm 找不到某个 peer，或 5 分钟内没有结果），扫描和 CI 改用该版本自己的 `@deepseek-ai/dsh` 来安装改指后的副本，这些版本在那里全部通过。只有当接下来单独安装 `@deepseek-ai/dsh@<版本>` 也在依赖图本身上失败（`ERESOLVE`、`ETARGET`、`E404`）时，一个版本才算**上游发布不完整**；目前没有这样的版本。单独安装超时或连不上 registry 什么也证明不了，这时该格直接失败。
+harness 从来不跑那张图。`@deepseek-ai/dsh` 把它组合的每个包都钉在同一个精确版本上。所以 peer 图失败时（`ERESOLVE`、npm 找不到某个 peer，或 5 分钟内没有结果），扫描和 CI 改用该版本自己的 `@deepseek-ai/dsh` 来安装改指后的副本，这些版本在那里全部通过。
+
+一个版本算**上游发布不完整**，是指 `@deepseek-ai/dsh@<版本>` 在不掺任何本仓库东西的情况下自己就装不上：npm 对该版本自身的依赖图回答 `E404` 或 `ETARGET`（用 legacy peer 模式检查，和冒烟安装的方式一致，几秒就出结果，peer 图要几分钟）。扫描和 CI 的每个格都先查这一点。目前就是 `0.0.1-rc.1` 和 `0.0.1-rc.2`：`npm error 404 Not Found - GET https://registry.npmjs.org/@deepseek-ai%2fdsh-agent-tool-mode`。改指后的副本装不上、随后单独安装也在依赖图上失败（包括 `ERESOLVE`）的版本，同样算不完整。单独安装超时或连不上 registry 什么也证明不了，这时该格直接失败。
 
 ## 0.1.7 的版本门
 
@@ -84,13 +99,14 @@ node-semver 只在范围里**存在某个比较器与该预发布版本的 `majo
 | `floor` | `0.1.1-rc.2` | 必需 | — | 门禁 |
 | `desktop` | 两个桌面更新源公布的版本；要求两者一致，且 npm 上有同版本的 `@deepseek-ai/dsh` | 会跑，非必需 | 每天 | 门禁 |
 | `latest` / `next` / `alpha` | `@deepseek-ai/dsh` 的 npm dist-tag | — | 每天 | — |
-| `sweep` | 从 peer 范围接纳的最低版本（`0.1.0-rc.8`）起，运行时从 npm 读出的每一个已发布 `@deepseek-ai/dsh` 版本 | — | 每周；最低线、每个元组的最新版本和每个 dist-tag 另跑冒烟 | 门禁，冒烟范围相同 |
+| `sweep` | 从 peer 范围接纳的最低版本（`0.0.1-rc.0`，也就是全部）起，运行时从 npm 读出的每一个已发布 `@deepseek-ai/dsh` 版本 | — | 每周；每个能装上的版本都跑冒烟 | 门禁，冒烟范围相同 |
 | `desktop-bytes` | `mac-arm64` 更新源里的 macOS 压缩包：校验 sha512，与它的 `desktop-runtime.json` 交叉核对，再用应用自带的 Electron Node 和内置 pnpm 跑冒烟 | — | 每天、每周 | 门禁 |
 
 读一次运行结果时要知道的细节：
 
 - **桌面版只有一个频道。** 应用把 `nightly` 写死，而且只构建 `mac-arm64` 和 `win-x64`。两个更新源不一致时 `desktop` 格失败；更新源已公布而 npm 上还没有的版本记为**不完整**。
-- **不完整是中性结果。** 早于本插件所需某个包的版本、npm 上还没有的版本、或者单独安装 `@deepseek-ai/dsh` 都失败的版本，既不开 issue 也不关 issue。类型、测试和冒烟在这种版本上不跑；`admission` 照跑，因为它不读任何包，范围拒绝的版本即使 npm 上还不全也算漂移。
+- **不完整是中性结果。** npm 上还没有的版本、或者自己的 `@deepseek-ai/dsh` 装不上的版本，既不开 issue 也不关 issue。冒烟在这种版本上不跑。`admission` 照跑，因为它不读任何包，范围拒绝的版本即使 npm 上还不全也算漂移。如果该版本发布了类型检查和测试所需的每个包，类型和测试也照跑（解析步骤会输出 `compiles=true`）；`0.0.1-rc.1` 和 `rc.2` 没有，所以那里只跑 `admission`。
+- **某个包从未在该版本发布，不是跳过它的理由。** 那个包保留本仓库钉住的版本，只用于类型，解析步骤会列出它（`kept=`）：`0.1.0-rc.8` 之前每个版本上的 `dsh-client-ui-renderer`。在发布了 `dsh-client-runtime` 的版本上（到 `0.1.1-rc.2` 为止），该格把它钉到该版本，因为早期客户端包只以脱字符 peer 的形式引用它，npm 会把它解析到同一元组里最新的预发布。插件在那里能不能跑，由冒烟回答；在每一个这样的版本上都能。
 - **只有 npm 明确回答「没有」才算不完整。** registry 没有应答（连接被拒、超时、5xx）时该格失败；npm 一个 `@deepseek-ai/dsh` 版本都列不出来时也一样。`pinned` 和 `floor` 永远不会是不完整：它们是本插件声明支持的版本，那里缺包就是失败。
 - **只有 harness 会变。** 除了钉住的那个版本，其余格都不用 lockfile 安装，因为那个版本的依赖图必须重新解析。`@deepseek-ai/` 之外的每个 devDependency（TypeScript、`@types/*`、esbuild、semver）都保持在 `package-lock.json` 解析出的精确版本上，所以工具链发了新版本，也不会出现 `floor` 或扫描变红而 `pinned` 仍然是绿的情况。
 - **新版本自己会出现。** 扫描在运行时读取版本列表。落在范围尚未覆盖的元组上的版本（比如 `0.1.8-alpha.1`）会以 `admission` 失败的形式出现，这就是去验证它的提示。
@@ -124,7 +140,7 @@ node scripts/sweep-trains.mjs                             # 每个已发布版�
 
 1. **看是哪个阶段失败。** 步骤摘要里写着，冒烟还会写出是哪个子阶段。
 2. **`types` 或 `tests`**：改名或删除的导出会在输出里点名。用结构类型和特性探测适配。永远不要值导入某个受支持版本上缺失的符号：缺少的具名导出是 ESM 链接失败，会拖垮整个入口。
-3. **新版本上的 `admission`**：先跑 `node scripts/sweep-trains.mjs --versions <v>`，再跑 `smoke-boot.mjs --dsh <v> --accept-risk`。两者都通过后，给每个 harness peer 加上新元组的一个带预发布标签的比较器，把版本加进 `scripts/check-invariants.mjs` 的 `VERIFIED_TRAINS` 和上面的表格，然后发版。
+3. **新版本上的 `admission`**：先跑 `node scripts/sweep-trains.mjs --versions <v>`，再跑 `smoke-boot.mjs --dsh <v> --accept-risk`。两者都通过后，给每个 harness peer 加上新元组的一个带预发布标签的比较器，把版本加进 `scripts/check-invariants.mjs` 的 `ADMITTED_TRAINS` 和上面的表格，然后发版。
 4. **`smoke`**：摘要会说明不装插件时 harness 能否启动。不能的话是上游的问题，漂移在它浮动的依赖里。
 5. **以一次发版交付。** peer 范围是包契约的一部分。
 
@@ -150,4 +166,4 @@ ctx.settings.installSection(ctx, 'crosery-viewer', schema, entry, hooks)
 0.1.2 还挪了两样东西，本插件刻意不绑定其中任何一个：
 
 - 客户端 `sessions` 服务 0.1.1 及以前在 `@deepseek-ai/dsh-client-runtime` 里，0.1.2 起在 `@deepseek-ai/dsh-api-session-controller` 里。本插件用结构类型声明自己读取的那一小块，而不是导入任何一个包的类型，所以同一份构建在两边都能通过类型检查。
-- `dsh-client-runtime` 在 `0.1.1-rc.2` 之后不再发布，所以它不是 devDependency。
+- `dsh-client-runtime` 在 `0.1.1-rc.2` 之后不再发布，所以它不是 devDependency。在有它的版本上，扫描行和 CI 格会把它钉到该版本（`scripts/harness-lib.mjs` 里的 `TRAIN_ONLY`）。

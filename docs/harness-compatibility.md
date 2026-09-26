@@ -4,40 +4,55 @@
 
 ## What this plugin supports
 
-**Web:** every published harness version from `0.1.0-rc.8` through `0.1.7-rc.2`. **Desktop app:** `0.1.7-rc.2`, the build its update feed ships today. The desktop app boots the same `@deepseek-ai/dsh` Web app at the same version, so "the desktop version" and "its Web version" are one version.
+**Web:** every published harness version, `0.0.1-rc.1` through `0.1.7-rc.2`. Every one that can be installed at all, `0.0.1-rc.5` and later, installs, boots and renders the cards. `0.0.1-rc.1` and `0.0.1-rc.2` are admitted too, but nobody can run them: their own `@deepseek-ai/dsh` depends on `@deepseek-ai/dsh-agent-tool-mode`, which was never published, so `npm install @deepseek-ai/dsh@0.0.1-rc.1` answers `E404`. **Desktop app:** `0.1.7-rc.2`, the build its update feed ships today. The desktop app boots the same `@deepseek-ai/dsh` Web app at the same version, so "the desktop version" and "its Web version" are one version.
 
-| Tuple | Verified versions | Types + tests | Boot smoke | Live, in a browser |
+| Tuple | Versions | Types + tests | Boot smoke | Live, in a browser |
 | --- | --- | --- | --- | --- |
-| 0.1.0 | `0.1.0-rc.8` | yes | `0.1.0-rc.8` | — |
+| 0.0.1 | `0.0.1-rc.1`, `0.0.1-rc.2` | incomplete upstream: the harness itself does not install | — | — |
+| 0.0.1 | `0.0.1-rc.5` | yes | `0.0.1-rc.5` | `0.0.1-rc.5` |
+| 0.1.0 | `0.1.0-rc.2`, `0.1.0-rc.3`, `0.1.0-rc.6`, `0.1.0-rc.7`, `0.1.0-rc.8` | yes | every one | `0.1.0-rc.2`, `0.1.0-rc.6` |
 | 0.1.1 | `0.1.1-rc.1`, `0.1.1-rc.2` | yes | `0.1.1-rc.2` (the floor) | `0.1.1-rc.2`, with v0.1.1 |
 | 0.1.2 | `0.1.2-alpha.2`, `0.1.2-alpha.3`, `0.1.2-alpha.4`, `0.1.2-alpha.5`, `0.1.2-rc.1` | yes | `0.1.2-rc.1` | — |
 | 0.1.3 | `0.1.3-alpha.2` | yes | `0.1.3-alpha.2` | — |
 | 0.1.5 | `0.1.5-alpha.1`, `0.1.5-alpha.2`, `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3` | yes | `0.1.5-rc.3` | `0.1.5-rc.2`, with v0.1.1 |
 | 0.1.6 | `0.1.6-alpha.1`, `0.1.6-alpha.2` | yes | `0.1.6-alpha.2` | — |
-| 0.1.7 | `0.1.7-alpha.1`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2` | yes | `0.1.7-alpha.2`; `0.1.7-rc.2` from npm and from the desktop app's own bytes | `0.1.7-rc.2`, Web and desktop |
+| 0.1.7 | `0.1.7-alpha.1`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2` | yes | `0.1.7-rc.2`, from npm and from the desktop app's own bytes | `0.1.7-rc.2`, Web and desktop |
 
-"Types + tests" means both typechecks and the whole suite pass with every `@deepseek-ai/dsh-*` devDependency repointed at exactly that version (`node scripts/sweep-trains.mjs`). The evidence for each column is in [acceptance.md](acceptance.md). The weekly CI sweep re-proves both: types and tests on every version, the boot smoke on the newest version of every tuple.
+"Types + tests" means both typechecks and the whole suite pass with every `@deepseek-ai/dsh-*` devDependency repointed at exactly that version (`node scripts/sweep-trains.mjs`). The boot smoke column is what ran locally for this release; CI's weekly sweep and the release gate boot **every** installable version. The evidence for each column is in [acceptance.md](acceptance.md).
+
+### The trains before 0.1.0-rc.8
+
+Up to `0.1.0-rc.7` the harness has a different front end: the `dsh-client-web` shell, the slot registry declared by `@deepseek-ai/dsh-client-runtime`, and no `@deepseek-ai/dsh-client-ui-renderer` (first published at `0.1.0-rc.8`). None of that reaches the plugin:
+
+- **The browser half needs two services, `slots` and `locale`**, and every train has both. The renderer package is imported type-only, for the `slots` declaration. On a train that never published it, the typecheck keeps this repository's pin of it and pins `dsh-client-runtime` to the train, which is where those trains declare `slots`; the build never contained a value from it.
+- **`dsh.client.inject` still names the renderer.** That list is graph metadata: a client fiber waits on the services its entry injects, not on package names. The boot smoke reports the name as absent on these trains and goes on to load the bundle.
+- **The shell's module table answers 10 specifiers** (react, its JSX runtime, react-dom and seven more), a superset of the three this bundle requires.
+- **Up to 0.1.1 the settings API is `ctx.settings.register`**, which `mountSettingsSection` already drives.
+
+Two install graphs exist for `0.1.0-rc.2` – `rc.7`. As released (`--graph released`, what the smoke uses), each resolves its own sub-packages. Installed today, their caret dependencies resolve to the `0.1.0-rc.8` sub-packages instead. Both are checked; see [acceptance.md](acceptance.md).
 
 Not supported, on evidence:
 
-- **`0.0.1-rc.x`.** The plugin system exists there (0.0.1-rc.5 already has client modules and profile bundles), but `@deepseek-ai/dsh-client-ui-renderer`, which the browser half compiles against and injects, was first published at `0.1.0-rc.8`; 0.0.1-rc.1 and rc.2 also lack `@deepseek-ai/dsh-home-paths`. The peer ranges refuse all three.
-- **`0.1.0-rc.2` – `0.1.0-rc.7`** predate the same renderer package, so nothing about them can be built. The 0.1.0 comparator starts at `0.1.0-rc.8`, and the ranges refuse them.
 - **`0.1.4`** was never published, and the ranges have no comparator for it.
 - **`0.1.8` and later** are admitted only after a sweep has verified them. Until then the ranges refuse them, and dsh ≥0.1.7 enforces that (next section).
 
-The peer range, identical for every `@deepseek-ai/dsh-*` peer:
+The peer range, identical for every `@deepseek-ai/dsh-*` peer, one comparator set per tuple:
 
 ```text
->=0.1.0-rc.8 <0.1.1-0 || >=0.1.1-rc.0 <0.1.2-0 || >=0.1.2-alpha.0 <0.1.3-0 || >=0.1.3-alpha.0 <0.1.4-0 || >=0.1.5-alpha.0 <0.1.6-0 || >=0.1.6-alpha.0 <0.1.7-0 || >=0.1.7-alpha.0 <0.1.8-0
+>=0.0.1-rc.0 <0.0.2-0 || >=0.1.0-rc.0 <0.1.1-0 || >=0.1.1-rc.0 <0.1.2-0 || >=0.1.2-alpha.0 <0.1.3-0 || >=0.1.3-alpha.0 <0.1.4-0 || >=0.1.5-alpha.0 <0.1.6-0 || >=0.1.6-alpha.0 <0.1.7-0 || >=0.1.7-alpha.0 <0.1.8-0
 ```
 
-`npm run check` asserts that this range admits every verified version above under both semver rules and refuses every build outside the support.
+`npm run check` asserts that this range admits every published version above under both semver rules, refuses every build outside the support, and keeps one prerelease-floored comparator set per tuple.
+
+No peer is optional. dsh ≥0.1.7's `evaluatePluginCompatibility` ignores `peerDependenciesMeta` and checks every `@deepseek-ai/dsh*` peer against the running version, so marking one optional could not make 0.1.7 refuse the plugin, but it would not make any train more usable either. The only peer some published train lacks is `@deepseek-ai/dsh-home-paths`, absent on `0.0.1-rc.1` and `rc.2`, and the Host half value-imports it; those two trains do not install anyway.
 
 ### Trains whose own peer graph does not resolve
 
-`0.1.1-rc.1`, `0.1.2-alpha.2` – `alpha.5`, `0.1.5-alpha.1` – `rc.2`, `0.1.6-alpha.1` and `0.1.7-alpha.1` publish harness packages with caret peers (`^0.1.1-rc.1`). npm's automatic peer install then drags in a later prerelease of the same tuple whose own peers conflict with the pinned one, and `npm install` stops with `ERESOLVE`. Earlier versions of this page therefore called several of them incoherent.
+`0.1.0-rc.6`, `0.1.0-rc.7`, `0.1.1-rc.1`, `0.1.2-alpha.2` – `alpha.5`, `0.1.5-alpha.1` – `rc.2`, `0.1.6-alpha.1` and `0.1.7-alpha.1` publish harness packages with caret peers (`^0.1.1-rc.1`). npm's automatic peer install then drags in a later prerelease of the same tuple whose own peers conflict with the pinned one, and `npm install` stops with `ERESOLVE`. Earlier versions of this page therefore called several of them incoherent.
 
-The harness never runs that graph. `@deepseek-ai/dsh` pins every package it composes to one exact version. So when the peer graph fails (`ERESOLVE`, a peer npm cannot find, or no answer within 5 minutes), the sweep and the CI install the repointed copy through that version's own `@deepseek-ai/dsh` instead, and every one of these versions passes there. A version counts as **incomplete upstream** only when a bare `@deepseek-ai/dsh@<version>` then fails too, on the graph itself (`ERESOLVE`, `ETARGET`, `E404`); none does today. A bare install that times out or cannot reach the registry proves nothing, so it fails the cell instead.
+The harness never runs that graph. `@deepseek-ai/dsh` pins every package it composes to one exact version. So when the peer graph fails (`ERESOLVE`, a peer npm cannot find, or no answer within 5 minutes), the sweep and the CI install the repointed copy through that version's own `@deepseek-ai/dsh` instead, and every one of these versions passes there.
+
+A version counts as **incomplete upstream** when `@deepseek-ai/dsh@<version>` does not install on its own, with nothing of ours involved: npm answers `E404` or `ETARGET` for the train's own graph (checked in legacy peer mode, as the smoke installs it, which takes seconds instead of the peer graph's minutes). The sweep and every CI cell check that first. Today that is `0.0.1-rc.1` and `0.0.1-rc.2`: `npm error 404 Not Found - GET https://registry.npmjs.org/@deepseek-ai%2fdsh-agent-tool-mode`. A version whose repointed copy fails and whose bare install then fails on the graph (`ERESOLVE` included) is incomplete too. A bare install that times out or cannot reach the registry proves nothing, so it fails the cell instead.
 
 ## The 0.1.7 version gate
 
@@ -84,13 +99,14 @@ The broad range does admit those prereleases under dsh's own `includePrerelease`
 | `floor` | `0.1.1-rc.2` | required | — | gate |
 | `desktop` | the version both desktop update feeds announce, required to agree and to exist as `@deepseek-ai/dsh` on npm | runs, not required | daily | gate |
 | `latest` / `next` / `alpha` | npm dist-tags of `@deepseek-ai/dsh` | — | daily | — |
-| `sweep` | every published `@deepseek-ai/dsh` version from the lowest the peer ranges admit (`0.1.0-rc.8`), read from npm at run time | — | weekly, with smoke on the floor, the newest version of each tuple and every dist-tag | gate, with the same smoke |
+| `sweep` | every published `@deepseek-ai/dsh` version from the lowest the peer ranges admit (`0.0.1-rc.0`, so every one), read from npm at run time | — | weekly, with the smoke on every installable version | gate, with the same smoke |
 | `desktop-bytes` | the macOS zip from the `mac-arm64` feed: sha512-verified, cross-checked against its `desktop-runtime.json`, smoked with the app's own Electron Node and bundled pnpm | — | daily and weekly | gate |
 
 Details that matter when reading a run:
 
 - **Only one desktop channel exists.** The app hard-codes `nightly`, and only `mac-arm64` and `win-x64` are built. A disagreement between the two feeds fails the `desktop` cell; a version the feeds announce before npm has it is **incomplete**.
-- **Incomplete is neutral.** A version that predates a package this plugin needs, or is not on npm yet, or whose bare `@deepseek-ai/dsh` does not install, neither opens nor closes an issue. Types, tests and smoke stand down on it; `admission` still runs, because it reads no package, so a version the ranges refuse is drift even before npm has all of it.
+- **Incomplete is neutral.** A version that is not on npm yet, or whose own `@deepseek-ai/dsh` does not install, neither opens nor closes an issue. The smoke stands down on it. `admission` still runs, because it reads no package, so a version the ranges refuse is drift even before npm has all of it. Types and tests still run when the train published every package they compile against (the resolve step says `compiles=true`); `0.0.1-rc.1` and `rc.2` did not, so there only `admission` runs.
+- **A package the train never published is not a reason to skip it.** It keeps this repository's pin, for types only, and the resolve step lists it (`kept=`): `dsh-client-ui-renderer` on every version before `0.1.0-rc.8`. Where the train publishes `dsh-client-runtime` (up to `0.1.1-rc.2`) the cell pins it to the train, because the early client packages reach it only as a caret peer, which npm would resolve to the newest prerelease of the tuple. Whether the plugin runs there is the smoke's question, and on every such train it does.
 - **Only npm saying "not there" is incomplete.** A registry that does not answer (a refused connection, a timeout, a 5xx) fails the cell, and so does npm listing no `@deepseek-ai/dsh` version at all. `pinned` and `floor` are never incomplete: they are versions this plugin claims, so a package missing there is a failure.
 - **Only the harness moves.** A cell on any version but the pin installs without the lockfile, since that version's graph has to resolve fresh. Every devDependency outside `@deepseek-ai/` (TypeScript, `@types/*`, esbuild, semver) stays at the exact version `package-lock.json` resolved, so a new toolchain release cannot turn `floor` or the sweep red while `pinned` stays green.
 - **A new release shows up by itself.** The sweep reads the version list at run time. A version on a tuple the ranges do not cover yet (say `0.1.8-alpha.1`) arrives as an `admission` failure, which is the prompt to verify it.
@@ -124,7 +140,7 @@ Work it in this order:
 
 1. **Read which stage failed.** The step summary names it, and for the smoke also the sub-stage.
 2. **`types` or `tests`:** a renamed or removed export names itself in the output. Adapt with structural types and feature detection. Never value-import a symbol one supported train lacks: a missing named export is an ESM link failure that takes the whole entry down.
-3. **`admission` on a new train:** run `node scripts/sweep-trains.mjs --versions <v>`, then `smoke-boot.mjs --dsh <v> --accept-risk`. When both pass, add one prerelease-carrying comparator for the new tuple to every harness peer, add the version to `VERIFIED_TRAINS` in `scripts/check-invariants.mjs` and to the table above, and release.
+3. **`admission` on a new train:** run `node scripts/sweep-trains.mjs --versions <v>`, then `smoke-boot.mjs --dsh <v> --accept-risk`. When both pass, add one prerelease-carrying comparator for the new tuple to every harness peer, add the version to `ADMITTED_TRAINS` in `scripts/check-invariants.mjs` and to the table above, and release.
 4. **`smoke`:** the summary says whether the harness boots without the plugin. If it does not, it is upstream's, and the drift is in its floating dependencies.
 5. **Ship it as a release.** The peer range is part of the package contract.
 
@@ -150,4 +166,4 @@ A **static import** of a removed export is what actually broke users once: ESM r
 Two more things moved in 0.1.2, and this plugin is deliberately pinned to neither:
 
 - The client `sessions` service lived in `@deepseek-ai/dsh-client-runtime` up to 0.1.1 and in `@deepseek-ai/dsh-api-session-controller` from 0.1.2. The plugin declares the slice it reads structurally instead of importing either package's type, so one build typechecks on both.
-- `dsh-client-runtime` stopped publishing after `0.1.1-rc.2`, which is why it is not a devDependency.
+- `dsh-client-runtime` stopped publishing after `0.1.1-rc.2`, which is why it is not a devDependency. A sweep row or CI cell on a train that has it pins it there (`TRAIN_ONLY` in `scripts/harness-lib.mjs`).

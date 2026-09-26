@@ -72,13 +72,20 @@ for (const kind of kinds) {
 //    dsh ≥0.1.7 applies the same ranges itself, prerelease-inclusive
 //    (`evaluatePluginCompatibility` in dsh-app-boot), refusing the install and
 //    silently skipping an installed plugin at boot. So every claim is checked
-//    under BOTH rules: the devDependency pin, and every train
-//    docs/harness-compatibility.md lists as verified. And nothing outside the
-//    documented support may be admitted — an unverified train that resolves is
-//    the failure this catches, and `npm install` never shows it.
-//    `node scripts/sweep-trains.mjs` produces the verified list.
-const VERIFIED_TRAINS = [
-  '0.1.0-rc.8',
+//    under BOTH rules: the devDependency pin, and every published version
+//    docs/harness-compatibility.md lists. And nothing outside it may be
+//    admitted — an unverified train that resolves is the failure this catches,
+//    and `npm install` never shows it. `node scripts/sweep-trains.mjs` and
+//    `node scripts/smoke-boot.mjs --dsh <v>` produce the evidence.
+/**
+ * Every published `@deepseek-ai/dsh` version, all admitted. 0.0.1-rc.1 and
+ * rc.2 are admitted although nobody can install them — their own harness
+ * depends on a `dsh-agent-tool-mode` that was never published — because the
+ * range claims tuples, not builds, and admitting them costs nothing.
+ */
+const ADMITTED_TRAINS = [
+  '0.0.1-rc.1', '0.0.1-rc.2', '0.0.1-rc.5',
+  '0.1.0-rc.2', '0.1.0-rc.3', '0.1.0-rc.6', '0.1.0-rc.7', '0.1.0-rc.8',
   '0.1.1-rc.1', '0.1.1-rc.2',
   '0.1.2-alpha.2', '0.1.2-alpha.3', '0.1.2-alpha.4', '0.1.2-alpha.5', '0.1.2-rc.1',
   '0.1.3-alpha.2',
@@ -87,26 +94,36 @@ const VERIFIED_TRAINS = [
   '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2',
 ]
 /**
- * Builds that must stay outside, under both rules: 0.0.1 and 0.1.0-rc.2 – rc.7
- * predate `@deepseek-ai/dsh-client-ui-renderer`, which the browser half
- * compiles against and injects (first published at 0.1.0-rc.8), so the
- * plugin cannot be built there at all; 0.1.4 was never published; 0.1.8+
- * waits for a sweep.
+ * Builds that must stay outside, under both rules: 0.1.4 was never published;
+ * 0.1.8+ and 0.2 wait for a sweep; 0.0.0 and 0.0.2 were never published.
  */
 const OUTSIDE = [
-  '0.0.1-rc.1', '0.0.1-rc.2', '0.0.1-rc.5',
-  '0.1.0-rc.2', '0.1.0-rc.3', '0.1.0-rc.4', '0.1.0-rc.5', '0.1.0-rc.6', '0.1.0-rc.7',
-  '0.1.4-rc.0', '0.1.8-alpha.0', '0.1.8-rc.0', '0.1.8', '0.2.0',
+  '0.0.0', '0.0.2-rc.0', '0.1.4-rc.0', '0.1.8-alpha.0', '0.1.8-rc.0', '0.1.8', '0.2.0',
 ]
 const rules = [['default semver (npm, pnpm)', {}], ['includePrerelease (dsh ≥0.1.7 install and boot)', { includePrerelease: true }]]
+/**
+ * One comparator set per tuple, `>=M.m.p-<pre> <M.m.(p+1)-0`: a set spanning
+ * two tuples admits no prerelease of the second under npm's rule, and a set
+ * without a prerelease floor admits none of its own.
+ */
+function tupleOf(set) {
+  const match = /^>=(\d+)\.(\d+)\.(\d+)-[0-9A-Za-z.]+ <(\d+)\.(\d+)\.(\d+)-0$/.exec(set.trim())
+  if (match === null) return undefined
+  const [, M, m, p, M2, m2, p2] = match.map(Number)
+  return M === M2 && m === m2 && p2 === p + 1 ? `${M}.${m}.${p}` : undefined
+}
 for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
   if (name !== '@deepseek-ai/dsh' && !name.startsWith('@deepseek-ai/dsh-')) continue
+  const sets = range.split('||')
+  const tuples = sets.map(tupleOf)
+  if (tuples.includes(undefined)) fail('peerDependencies', `${name} \`${range}\` has a comparator set that is not one prerelease-floored tuple (\`>=M.m.p-pre <M.m.(p+1)-0\`)`)
+  else if (new Set(tuples).size !== tuples.length) fail('peerDependencies', `${name} names a tuple twice`)
   const pinned = pkg.devDependencies?.[name]
-  const trains = [...(pinned !== undefined && semver.valid(pinned) ? [pinned] : []), ...VERIFIED_TRAINS]
+  const trains = [...(pinned !== undefined && semver.valid(pinned) ? [pinned] : []), ...ADMITTED_TRAINS]
   for (const train of trains) {
     for (const [rule, options] of rules) {
       if (!semver.satisfies(train, range, options)) {
-        fail('peerDependencies', `${name} \`${range}\` rejects ${train === pinned ? 'the pinned' : 'the verified'} train ${train} under ${rule}` +
+        fail('peerDependencies', `${name} \`${range}\` rejects ${train === pinned ? 'the pinned' : 'the published'} train ${train} under ${rule}` +
           (semver.prerelease(train) ? ' — a prerelease needs a comparator on its own major.minor.patch tuple that itself carries a prerelease tag' : ''))
       }
     }
@@ -120,10 +137,10 @@ for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
 }
 for (const file of ['docs/harness-compatibility.md', 'docs/harness-compatibility.zh.md']) {
   const text = read(file)
-  const unlisted = VERIFIED_TRAINS.filter((train) => !text.includes(`\`${train}\``))
-  if (unlisted.length > 0) fail(file, `does not list verified trains: ${unlisted.join(', ')}`)
+  const unlisted = ADMITTED_TRAINS.filter((train) => !text.includes(`\`${train}\``))
+  if (unlisted.length > 0) fail(file, `does not list admitted trains: ${unlisted.join(', ')}`)
 }
-notes.push(`peer ranges: ${VERIFIED_TRAINS.length} verified trains admitted and ${OUTSIDE.length} outside builds refused, under both semver rules`)
+notes.push(`peer ranges: ${ADMITTED_TRAINS.length} published trains admitted and ${OUTSIDE.length} outside builds refused, under both semver rules, one comparator set per tuple`)
 
 // 5. Storefronts read this file; a path that does not resolve is a 404 in the
 //    market listing, which nobody looking at this repo would ever notice.
