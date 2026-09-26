@@ -171,10 +171,16 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 
 在哪里改取决于 harness 版本：
 
-- **0.1.5 及以前**：改 `$DSH_HOME/settings.yaml` 的 `crosery-viewer` 段，热重载，不需要重启。
-- **0.1.7 起**（web 与桌面版）：`settings.yaml` 已被移除。**设置**页会按插件条目 `viewer` 自动生成表单，每个开关带说明，保存后写进 profile patch。旧 `settings.yaml` 的一次性导入按段名对应条目 id，所以 `crosery-viewer` 段**不会**被带过来（它只留在 `settings.yaml.imported` 里）——非默认值需要在 `viewer` 条目上重新设置一次。
+- **0.1.6 及以前**：改 `$DSH_HOME/settings.yaml` 的 `crosery-viewer` 段，热重载，不需要重启。
+- **0.1.7 起**（web 与桌面版）：本插件**没有设置表单**。设置页只为插件标成 volatile 的字段生成表单，而这几个字段都不是。请在 profile 自己的 patch 文件 `$DSH_HOME/profiles/<profile>/cordis.patch.yml` 里给插件条目 `viewer` 写配置——`dsh --profile web` 用 `~/.dsh/profiles/web/cordis.patch.yml`，桌面版用 `~/.dsh/profiles/desktop/cordis.patch.yml`——然后重启该 profile 或桌面应用：
 
-也可以在 `cordis.patch.yml` 里钉死；注意 patch **整行替换 `config`**，要重述每一个键。
+  ```yaml
+  - id: viewer
+    config:
+      redirectRead: false
+  ```
+
+  这一行会**整体替换**条目的 `config`，而不是与之合并，所以没写的字段保持默认值。0.1.7 上 `settings.yaml` 已被移除，它的一次性导入把每一段写进同 id 的条目，所以 `crosery-viewer` 段**不会**被带过来——它只留在 `settings.yaml.imported` 里。
 
 ## 装到 profile
 

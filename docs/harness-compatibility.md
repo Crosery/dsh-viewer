@@ -139,11 +139,11 @@ Never widen the range to silence the job. The harness enforces the range, so a w
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 installSettingsSection(ctx, settingsNamespace('crosery-viewer'), schema, entry, hooks)
 
-// 0.1.2 – 0.1.5
+// 0.1.2 – 0.1.6
 ctx.settings.installSection(ctx, 'crosery-viewer', schema, entry, hooks)
 ```
 
-0.1.7 replaced both with generated settings forms: the harness renders a form from each entry's own `Config` schema, keyed by entry id (`viewer`), and neither method exists. `mountSettingsSection` in `src/index.ts` drives whichever surface the running harness publishes and does nothing on 0.1.7, where the entry's `Config` is already the form. `tests/settings-mount.test.ts` pins every arm.
+0.1.7 removed both. `ctx.settings` became a forms service with neither method, and its forms show only the fields a plugin marks volatile — none of this plugin's, so 0.1.7 has no settings form for it. The entry's own `Config` (entry id `viewer`) is the only source, set in the profile's `cordis.patch.yml`; see [Configuration](../README.md#configuration). `mountSettingsSection` in `src/index.ts` drives whichever surface the running harness publishes and does nothing on 0.1.7. `tests/settings-mount.test.ts` pins every arm.
 
 A **static import** of a removed export is what actually broke users once: ESM resolves named exports before any code runs, so on 0.1.2 the whole host entry failed to load with `does not provide an export named 'installSettingsSection'`. It did not degrade; it did not start.
 

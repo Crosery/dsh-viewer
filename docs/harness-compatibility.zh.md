@@ -139,11 +139,11 @@ node scripts/sweep-trains.mjs                             # 每个已发布版�
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 installSettingsSection(ctx, settingsNamespace('crosery-viewer'), schema, entry, hooks)
 
-// 0.1.2 – 0.1.5
+// 0.1.2 – 0.1.6
 ctx.settings.installSection(ctx, 'crosery-viewer', schema, entry, hooks)
 ```
 
-0.1.7 用生成的设置表单同时取代了这两者：harness 按条目 id（`viewer`）从每个条目自己的 `Config` schema 渲染表单，两个方法都不存在了。`src/index.ts` 里的 `mountSettingsSection` 驱动运行中的 harness 发布的那一套接口，在 0.1.7 上什么都不做，因为条目的 `Config` 本身就是表单。`tests/settings-mount.test.ts` 钉住了每一条分支。
+0.1.7 把两者都去掉了。`ctx.settings` 变成了一个表单服务，两个方法都没有；它的表单只展示插件标成 volatile 的字段——本插件一个都没有，所以 0.1.7 上本插件没有设置表单。条目自己的 `Config`（条目 id `viewer`）是唯一来源，写在 profile 的 `cordis.patch.yml` 里，见 [配置](../README.zh.md#配置)。`src/index.ts` 里的 `mountSettingsSection` 驱动运行中的 harness 发布的那一套接口，在 0.1.7 上什么都不做。`tests/settings-mount.test.ts` 钉住了每一条分支。
 
 真正坑过用户的是对已删除导出的**静态导入**：ESM 在任何代码运行之前就解析具名导出，所以在 0.1.2 上整个 host 入口加载失败，报 `does not provide an export named 'installSettingsSection'`。它没有降级，而是根本没启动。
 

@@ -123,11 +123,12 @@ export interface SettingsHooks {
  * 'installSettingsSection'` — instead of degrading to entry-config behavior.
  *
  * 0.1.7 replaced the service again: `ctx.settings` is `SettingsForms`, with
- * neither method. Its forms are generated from this plugin's exported `Config`
- * under the profile entry id (`viewer`), and a saved change is written to the
- * profile patch and re-applies the plugin with the new entry config — so on
- * that train both arms below are skipped and the composition entry IS the
- * settings source, which `apply` already treats as the default.
+ * neither method, and its forms show only fields a plugin marks volatile, so
+ * there is no form for this plugin at all. Its settings are the composition
+ * entry's config (entry id `viewer`), which a profile overrides in its own
+ * `cordis.patch.yml` — so on that train both arms below are skipped and the
+ * composition entry IS the settings source, which `apply` already treats as
+ * the default.
  */
 interface SettingsServiceLike {
   installSection?(

@@ -208,9 +208,9 @@ test('the registered section reads tool visibility per assembly scope', () => {
   equal(text({ scope: 'agent-without' }), '', 'a restricted-away or switched-off tool is not advertised')
 })
 
-// --- settings form --------------------------------------------------------
+// --- settings schema ------------------------------------------------------
 
-test('every settings field carries a description for the generated form', () => {
+test('every settings field carries a description', () => {
   const dict = (ViewerSettingsSchema as unknown as { dict: Record<string, { meta?: { description?: unknown } }> }).dict
   for (const field of ['tool', 'redirectRead', 'feedModel', 'supersedeReadImage']) {
     const description = dict[field]?.meta?.description

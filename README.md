@@ -109,8 +109,16 @@ Four switches. Every default is the behaviour the plugin exists to provide; each
 
 Where to edit them depends on the harness train:
 
-- **Up to 0.1.5**: the `crosery-viewer` section of `$DSH_HOME/settings.yaml` — hot-reloaded, no restart.
-- **0.1.7 and later** (web and desktop): `settings.yaml` no longer exists. **Settings** generates a form for the plugin entry `viewer`, each switch with its description, and saving writes the values into the profile patch. The one-time import of an old `settings.yaml` maps sections to entry ids by name, so a `crosery-viewer` section is **not** carried over (it stays behind in `settings.yaml.imported`) — set any non-default value again on the `viewer` entry.
+- **Up to 0.1.6**: the `crosery-viewer` section of `$DSH_HOME/settings.yaml` — hot-reloaded, no restart.
+- **0.1.7 and later** (web and desktop): there is **no settings form** for this plugin. The Settings page builds forms only from fields a plugin marks volatile, and these are not. Set them on the plugin's `viewer` entry in the profile's own patch file, `$DSH_HOME/profiles/<profile>/cordis.patch.yml` — `~/.dsh/profiles/web/cordis.patch.yml` for `dsh --profile web`, `~/.dsh/profiles/desktop/cordis.patch.yml` for the desktop app — then restart the profile or the app:
+
+  ```yaml
+  - id: viewer
+    config:
+      redirectRead: false
+  ```
+
+  The row replaces the entry's `config` as a whole rather than merging into it, so a field it leaves out keeps its default. `settings.yaml` is gone on 0.1.7, and its one-time import moves each section into the entry of the same id, so a `crosery-viewer` section is **not** carried over — it stays behind in `settings.yaml.imported`.
 
 ## Design notes
 
