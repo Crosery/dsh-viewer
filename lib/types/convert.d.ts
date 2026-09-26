@@ -12,7 +12,8 @@
  * Conversion costs seconds, so the cache is the real feature. The key covers
  * the converter version as well as the file identity, because the same bytes
  * through a newer LibreOffice are a different artifact and a stale hit would be
- * invisible.
+ * invisible. The key must also be stable across restarts, or nothing is ever
+ * hit twice and the directory only grows; `cache.ts` bounds it either way.
  *
  * Two converters. From 0.1.6-alpha.2 the harness composes its own
  * `officeToPdf` service with a bundled LibreOffice kit, so a desktop user with
@@ -84,8 +85,11 @@ export type OfficeExtension = typeof OFFICE_EXTENSIONS[number];
  * `ctx.get` and narrowed with {@link officeToPdfOf}.
  */
 export interface OfficeToPdfLike {
-    /** Changes whenever the engine, fonts, or rendering settings are replaced. */
-    readonly generation?: unknown;
+    /**
+     * The provider's resolved configuration — fonts, fallbacks, image
+     * resolution, limits. Read only to key the cache: see {@link officeConverterIdentity}.
+     */
+    readonly config?: unknown;
     /**
      * Convert Office bytes. The provider owns queueing, the bundled engine and
      * its own content cache; the caller owns authorization and the source read.
@@ -134,16 +138,32 @@ export interface OfficeSource {
     read(signal: AbortSignal, maxBytes: number): Promise<Uint8Array>;
 }
 /**
+ * A stable identity for the bundled converter, for the artifact key.
+ *
+ * Not the provider's `generation`: that is `randomUUID()` per provider
+ * instance, so keying on it made every restart a cold cache — the cache was
+ * never hit across restarts and only grew. The provider replaces its
+ * generation when its configuration is replaced, so the configuration itself
+ * is the stable half of the same idea: different fonts or rendering settings
+ * are a different artifact, a restart is not. What it cannot see is a harness
+ * upgrade that ships a new engine under an unchanged configuration; such an
+ * artifact is still a faithful render of unchanged bytes, and it ages out of
+ * the cache like any other.
+ * @param converter - the harness `officeToPdf` service.
+ * @returns a string that changes exactly when the provider's configuration does.
+ */
+export declare function officeConverterIdentity(converter: OfficeToPdfLike): string;
+/**
  * Artifact name for one conversion through the bundled converter.
  *
- * Keyed on the provider generation as well as on the source identity, for the
+ * Keyed on the converter's identity as well as on the source identity, for the
  * same reason the LibreOffice key carries the LibreOffice version: the same
- * bytes through a replaced engine or font set are a different PDF.
- * @param generation - the provider's generation, or `'unknown'`.
+ * bytes through different fonts or rendering settings are a different PDF.
+ * @param identity - {@link officeConverterIdentity} of the provider.
  * @param source - the converted document.
  * @returns the artifact's basename, extension included.
  */
-export declare function officeArtifactName(generation: string, source: Pick<OfficeSource, 'path' | 'version' | 'bytes'>): string;
+export declare function officeArtifactName(identity: string, source: Pick<OfficeSource, 'path' | 'version' | 'bytes'>): string;
 /**
  * Convert one Office document through the harness's bundled converter, or
  * return the cached artifact.

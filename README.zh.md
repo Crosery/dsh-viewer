@@ -67,6 +67,8 @@ brew install --cask libreoffice
 
 没有转换器也不影响其余格式，文档卡片会明确说明缺什么。
 
+转好的 PDF 缓存在 `$DSH_HOME/.dsh-viewer-cache/`，所有 profile 共用，所以一份文档每改一次只转一次，而不是每显示一次转一次。缓存有上限：30 天没用过的产物会被删掉，超过 256 份或 512 MiB 时先删最久没用的。卡片加载它的 PDF 也算一次使用。
+
 ---
 
 ## 它解决什么
@@ -106,7 +108,7 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 
 路由**从不接受浏览器给的路径**。工具执行时用一个每 harness 一份的密钥对已解析的绝对路径做 HMAC，路径和 MAC 一起放进 URL；路由只在 MAC 验过之后才认那个路径。
 
-- 密钥：32 字节随机数，`$DSH_HOME/.dsh-viewer-asset-key`，0600，首次使用时生成。**自包含的签名而不是进程内 token 表**，是因为卡片必须活过重启：从会话日志重放出来的卡片手上只有几个月前铸的那个 URL。
+- 密钥：32 字节随机数，`$DSH_HOME/.dsh-viewer-asset-key`，0600，首次使用时生成。**自包含的签名而不是进程内 token 表**，是因为卡片必须活过重启：从会话日志重放出来的卡片手上只有几个月前铸的那个 URL。唯一的例外是转换过的文档：它的 URL 指向缓存里的 PDF，那份 PDF 被淘汰之后，卡片里的 frame 会得到 `404`，直到 `display_file` 重新转换这个文件。
 - 篡改路径、换密钥、去掉签名、改用 padded base64 拼写——全部 404，且「没签名」和「签了但文件不存在」返回同一个状态码，探测者无法从状态码学到文件是否存在。
 - `text/html` 和 `image/svg+xml` 带 CSP 响应头下发（前者 `sandbox`，后者 `default-src 'none'`）。同源直接导航到资源 URL 时，这两种文档否则会以应用的 origin 执行脚本。所有响应带 `nosniff`。
 - 字节走 `createReadStream(processPath)` 而不是 `ctx.fs.readBytes`——后者会把整个文件读进内存，而两小时的视频正是这插件存在的理由。
@@ -119,7 +121,9 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 - **每次调用私有 profile**（`-env:UserInstallation=file://…`）。LibreOffice 多个实例共用用户 profile 目录会互相破坏；更要命的是**桌面上已经开着 LibreOffice 时，headless 调用会立刻退出且不产出任何文件**——这是「明明成功了却没有 PDF」最常见的原因。
 - **串行队列**。私有 profile 解决了互相破坏，但没解决成本：几个 LibreOffice 冷启动同时跑会拖垮笔记本。重复由缓存吸收。
 - **缓存键含 LibreOffice 版本** + 源文件 path/mtime/size。同样的字节经过新版 LibreOffice 是不同的产物，键里不带版本，升级后就会命中陈旧渲染而且看不出来。不对文件内容做摘要：几百 MB 的演示文稿不该为了「查一下转过没有」被读两遍。
+- **harness 内置转换器的缓存键是它的配置**（字体、回退字体、图片分辨率等）加源文件的 path/版本/大小，而不是它的 `generation`：上游每个转换器实例都用 `randomUUID()` 生成 `generation`，拿它做键等于每次重启都是冷缓存，缓存永远命中不了、只会越长越大。配置变了就是新产物，重启不是。它看不到的是配置不变、随 harness 升级换了引擎的情况；这时的产物仍是同一份字节的忠实渲染，会像其他产物一样按时淘汰。
 - 产物写在 `$DSH_HOME/.dsh-viewer-cache/`，**先写临时目录再 rename 就位**——读者要么看不到产物，要么看到完整的，不会拿到半个 PDF 喂给阅读器。
+- **缓存有界，按最近使用淘汰**：30 天没用、超过 256 份或超过 512 MiB 时，从最久没用的开始删；`display_file` 命中和资源路由下发 PDF 都算使用。插件启动时和每次写入后各在后台修剪一次，只动缓存目录里本插件写出的文件名的普通文件——别的文件、符号链接、子目录一概不碰。
 
 实测冷启动 2.6–3.6 秒，之后命中缓存。
 
@@ -185,7 +189,7 @@ npm run typecheck     # 两个 program 分开检查
 npm run build         # 两份 .d.ts + 两个 bundle（产物提交进仓库，改动后要一并提交）
 npm run check         # 仓库不变式（README 计数、locale 键、peer 范围、安装路径）
 npm run check:dist    # 提交的 lib/ 与重新构建逐字节一致
-npm test              # 123 个用例
+npm test              # 136 个用例
 ```
 
 v0.1.1 时在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet-5 路由，headless Chrome 驱动；0.2.0 在 0.1.7-rc.2 的 Web 与桌面版上的实测见 [docs/acceptance.zh.md](docs/acceptance.zh.md)）：

@@ -28,6 +28,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { ASSET_ROUTE, VIEWER_SETTINGS_NAMESPACE, type ViewerSettings } from './contract.ts'
 import { ViewerSettingsSchema } from './settings.ts'
 import { assetHandler } from './asset-route.ts'
+import { schedulePrune } from './cache.ts'
 import { loadAssetSecret } from './asset-token.ts'
 import { applyDisplayTool } from './display-file.ts'
 import { applyReadRedirect } from './read-redirect.ts'
@@ -68,8 +69,8 @@ const SECRET_FILE = '.dsh-viewer-asset-key'
 /**
  * Directory owning converted document artifacts. Beside the key rather than in
  * a profile: conversion is expensive and its result depends only on the source
- * bytes and the LibreOffice version, so every profile on one machine should hit
- * the same cache.
+ * bytes and the converter, so every profile on one machine should hit the same
+ * cache. `cache.ts` keeps it bounded.
  */
 const CACHE_DIR = '.dsh-viewer-cache'
 
@@ -233,13 +234,14 @@ export function apply(ctx: Context, config: Config): void {
   // follows that scope's lifetime, which is what keeps a minted URL honest: a
   // card never receives a link to a route that is not listening.
   let serving = false
+  const cacheDir = dshHomePath(CACHE_DIR)
   ctx.inject(['webServer'], (scoped) => {
     scoped.effect(() => {
       serving = true
       const dispose = scoped.webServer.register({
         kind: 'exact',
         path: ASSET_ROUTE,
-        handler: assetHandler(() => secret),
+        handler: assetHandler(() => secret, { cacheDir }),
       })
       return () => {
         serving = false
@@ -258,7 +260,7 @@ export function apply(ctx: Context, config: Config): void {
       disposeTool = applyDisplayTool(ctx, {
         feedModel: () => source().feedModel,
         secret: () => (serving ? secret : undefined),
-        cacheDir: dshHomePath(CACHE_DIR),
+        cacheDir,
       })
     } else if (!wanted && disposeTool !== undefined) {
       disposeTool()
@@ -286,4 +288,8 @@ export function apply(ctx: Context, config: Config): void {
 
   // Only meaningful while this plugin actually offers the replacement.
   applySupersedeReadImage(ctx, () => source().tool && source().supersedeReadImage)
+
+  // Trim what earlier runs left behind. In the background, and never fatal: a
+  // cache that could not be trimmed still serves every card.
+  void schedulePrune(cacheDir)
 }

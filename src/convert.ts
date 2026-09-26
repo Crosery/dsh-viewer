@@ -12,7 +12,8 @@
  * Conversion costs seconds, so the cache is the real feature. The key covers
  * the converter version as well as the file identity, because the same bytes
  * through a newer LibreOffice are a different artifact and a stale hit would be
- * invisible.
+ * invisible. The key must also be stable across restarts, or nothing is ever
+ * hit twice and the directory only grows; `cache.ts` bounds it either way.
  *
  * Two converters. From 0.1.6-alpha.2 the harness composes its own
  * `officeToPdf` service with a bundled LibreOffice kit, so a desktop user with
@@ -25,10 +26,11 @@
 
 import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { access, mkdir, mkdtemp, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import { promisify } from 'node:util'
+import { schedulePrune, useArtifact } from './cache.ts'
 
 const run = promisify(execFile)
 
@@ -124,16 +126,6 @@ function enqueue<T>(job: () => Promise<T>): Promise<T> {
   return result
 }
 
-/** Whether a path already exists. */
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path)
-    return true
-  } catch {
-    return false
-  }
-}
-
 /**
  * Convert one document to PDF, or return the cached artifact.
  * @param sourcePath - absolute path of the source, in the Host's own filesystem.
@@ -155,12 +147,12 @@ export async function convertDocument(
   }
   const info = await stat(sourcePath)
   const artifact = join(cacheDir, artifactName(converter, sourcePath, info.mtimeMs, info.size))
-  if (await exists(artifact)) return artifact
+  if (await useArtifact(artifact)) return artifact
 
   return await enqueue(async () => {
     // Re-check inside the queue: several cards for one document can be waiting
     // on the same slot, and only the first of them should pay for it.
-    if (await exists(artifact)) return artifact
+    if (await useArtifact(artifact)) return artifact
     await mkdir(cacheDir, { recursive: true })
     const work = await mkdtemp(join(tmpdir(), 'dsh-viewer-convert-'))
     try {
@@ -186,6 +178,7 @@ export async function convertDocument(
       // Rename into place last: a reader either sees no artifact or a complete
       // one, never a half-written file being served to a PDF viewer.
       await rename(join(work, produced), artifact)
+      void schedulePrune(cacheDir)
       return artifact
     } finally {
       await rm(work, { recursive: true, force: true })
@@ -214,8 +207,11 @@ export type OfficeExtension = typeof OFFICE_EXTENSIONS[number]
  * `ctx.get` and narrowed with {@link officeToPdfOf}.
  */
 export interface OfficeToPdfLike {
-  /** Changes whenever the engine, fonts, or rendering settings are replaced. */
-  readonly generation?: unknown
+  /**
+   * The provider's resolved configuration — fonts, fallbacks, image
+   * resolution, limits. Read only to key the cache: see {@link officeConverterIdentity}.
+   */
+  readonly config?: unknown
   /**
    * Convert Office bytes. The provider owns queueing, the bundled engine and
    * its own content cache; the caller owns authorization and the source read.
@@ -268,20 +264,55 @@ export interface OfficeSource {
   read(signal: AbortSignal, maxBytes: number): Promise<Uint8Array>
 }
 
+/** JSON with object keys sorted, so equal configurations hash equally. */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return item
+    return Object.fromEntries(Object.entries(item).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+  }) ?? 'undefined'
+}
+
+/**
+ * A stable identity for the bundled converter, for the artifact key.
+ *
+ * Not the provider's `generation`: that is `randomUUID()` per provider
+ * instance, so keying on it made every restart a cold cache — the cache was
+ * never hit across restarts and only grew. The provider replaces its
+ * generation when its configuration is replaced, so the configuration itself
+ * is the stable half of the same idea: different fonts or rendering settings
+ * are a different artifact, a restart is not. What it cannot see is a harness
+ * upgrade that ships a new engine under an unchanged configuration; such an
+ * artifact is still a faithful render of unchanged bytes, and it ages out of
+ * the cache like any other.
+ * @param converter - the harness `officeToPdf` service.
+ * @returns a string that changes exactly when the provider's configuration does.
+ */
+export function officeConverterIdentity(converter: OfficeToPdfLike): string {
+  let config: string
+  try {
+    config = canonicalJson(converter.config)
+  } catch {
+    // A configuration that does not serialize is keyed as one identity, which
+    // is still stable across restarts.
+    config = 'unserializable'
+  }
+  return `officeToPdf\0${createHash('sha256').update(config).digest('hex')}`
+}
+
 /**
  * Artifact name for one conversion through the bundled converter.
  *
- * Keyed on the provider generation as well as on the source identity, for the
+ * Keyed on the converter's identity as well as on the source identity, for the
  * same reason the LibreOffice key carries the LibreOffice version: the same
- * bytes through a replaced engine or font set are a different PDF.
- * @param generation - the provider's generation, or `'unknown'`.
+ * bytes through different fonts or rendering settings are a different PDF.
+ * @param identity - {@link officeConverterIdentity} of the provider.
  * @param source - the converted document.
  * @returns the artifact's basename, extension included.
  */
-export function officeArtifactName(generation: string, source: Pick<OfficeSource, 'path' | 'version' | 'bytes'>): string {
+export function officeArtifactName(identity: string, source: Pick<OfficeSource, 'path' | 'version' | 'bytes'>): string {
   const key = createHash('sha256')
     .update('office-to-pdf').update('\0')
-    .update(generation).update('\0')
+    .update(identity).update('\0')
     .update(source.path).update('\0')
     .update(source.version).update('\0')
     .update(String(source.bytes ?? ''))
@@ -314,9 +345,8 @@ export async function convertWithOfficeToPdf(
 ): Promise<string> {
   const extension = officeExtensionOf(source.path)
   if (extension === undefined) throw new Error(`the bundled converter does not accept ${extname(source.path) || 'this file'}`)
-  const generation = typeof converter.generation === 'string' ? converter.generation : 'unknown'
-  const artifact = join(cacheDir, officeArtifactName(generation, source))
-  if (await exists(artifact)) return artifact
+  const artifact = join(cacheDir, officeArtifactName(officeConverterIdentity(converter), source))
+  if (await useArtifact(artifact)) return artifact
 
   const result = await converter.convert({
     extension,
@@ -339,5 +369,6 @@ export async function convertWithOfficeToPdf(
   } finally {
     await rm(partial, { force: true })
   }
+  void schedulePrune(cacheDir)
   return artifact
 }

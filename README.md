@@ -73,6 +73,8 @@ brew install --cask libreoffice     # macOS
 
 Without a converter, every other format still works and a document card says exactly what is missing.
 
+Converted PDFs are cached in `$DSH_HOME/.dsh-viewer-cache/`, shared by every profile, so a document converts once per edit rather than once per display. The cache is bounded: an artifact unused for 30 days is removed, and beyond 256 documents or 512 MiB the least recently used go first. Serving a card's PDF counts as a use.
+
 ## How the bytes reach the page
 
 Two channels, in priority order.
@@ -89,7 +91,7 @@ In the desktop app, video and audio load from the Host's loopback address (`__DS
 
 The route **never accepts a path from the browser.** At tool time the host signs the resolved absolute path with a per-harness HMAC key; path and MAC travel together in the URL, and the route honours a path only after the MAC verifies.
 
-- Key: 32 random bytes at `$DSH_HOME/.dsh-viewer-asset-key`, mode `0600`, generated on first use. A self-contained signature rather than an in-process token table, because cards must survive a restart — a card replayed from a months-old session log holds only the URL it was minted with.
+- Key: 32 random bytes at `$DSH_HOME/.dsh-viewer-asset-key`, mode `0600`, generated on first use. A self-contained signature rather than an in-process token table, because cards must survive a restart — a card replayed from a months-old session log holds only the URL it was minted with. The one exception is a converted document: its URL names a cached PDF, and once that has been evicted the card's frame answers `404` until `display_file` converts the file again.
 - Tampering with the path, swapping keys, dropping the signature, or re-spelling the base64 with padding all return `404`. "Not signed by us" and "signed but the file is gone" return the *same* status, so a probe cannot learn whether a file exists.
 - `text/html` and `image/svg+xml` ship with a `Content-Security-Policy` (`sandbox` and `default-src 'none'` respectively): navigating directly to such an asset would otherwise run its script on the app's origin. Everything carries `X-Content-Type-Options: nosniff`.
 - Bytes stream with `createReadStream`, not `ctx.fs.readBytes` — the latter materializes the whole file in memory, and a two-hour video is precisely the case this plugin exists for.
@@ -122,6 +124,8 @@ Where to edit them depends on the harness train:
 
 **Completed turns keep their files on screen.** From 0.1.6 the chat folds a completed turn's tool rows behind one "used N s" disclosure, and 0.1.7 does it by default. The plugin therefore also contributes to the chat's turn tail — the list between a turn's closing reply and its action row, where the harness's own delivery cards live — and shows that turn's displayed files there once the turn completes. The tail stands down wherever the rows are visible anyway: the `verbose` transcript view, and a turn that is still running, was aborted, or failed.
 
+**The conversion cache survives restarts, and stays bounded.** The harness's bundled converter stamps each provider instance with a random `generation`, so keying artifacts on it made every restart a cold cache that was never hit again and only grew. The key is the converter's configuration instead — fonts, fallbacks, image resolution — plus the source's path, version and size: new settings are a new artifact, a restart is not. An engine upgrade under unchanged settings keeps serving the older render of the same bytes until it ages out. Pruning runs in the background at activation and after each write, and only ever removes regular files in the cache directory whose names the converters write.
+
 **A PDF iframe must not be sandboxed.** `sandbox` without `allow-same-origin` gives an opaque origin, and Chrome's PDF viewer refuses to run there, showing "This page has been blocked by Chrome". Local HTML is the opposite case and keeps the sandbox.
 
 ## Development
@@ -132,7 +136,7 @@ npm run typecheck   # host and client are separate programs — see below
 npm run build       # two .d.ts trees + two bundles; the result is committed
 npm run check       # repo invariants: README counts, locale keys, peer range, install path
 npm run check:dist  # the committed lib/ is byte-identical to a fresh build
-npm test            # 123 cases
+npm test            # 136 cases
 ```
 
 Two tsconfigs are required, not fastidiousness: both halves augment the same `@deepseek-ai/cordis` `Context`, and `sessions` is `SessionStore` on the host but `ISessions` in the browser. One program seeing both augmentations silently resolves the wrong one, because `skipLibCheck` hides the conflict.

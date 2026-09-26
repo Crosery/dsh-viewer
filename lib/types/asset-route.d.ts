@@ -48,11 +48,20 @@ export declare function parseRange(header: string | undefined, size: number): By
  * @returns extra headers for this kind, possibly empty.
  */
 export declare function guardHeaders(kind: ViewerKind): Record<string, string>;
+/** Optional behavior of {@link assetHandler}. */
+export interface AssetHandlerOptions {
+    /**
+     * The converted-document cache. Serving one of its artifacts marks it used,
+     * so the artifact behind a card someone is looking at is not evicted.
+     */
+    cacheDir?: string;
+}
 /**
  * Build the asset route's handler.
  * @param secret - a thunk returning the harness MAC key, or `undefined` while
  *   key material is still loading (the route answers 503 until it resolves).
+ * @param options - optional behavior; see {@link AssetHandlerOptions}.
  * @returns the `webServer` route handler.
  */
-export declare function assetHandler(secret: () => Buffer | undefined): (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+export declare function assetHandler(secret: () => Buffer | undefined, options?: AssetHandlerOptions): (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 export {};

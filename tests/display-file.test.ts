@@ -110,6 +110,7 @@ test('a DOCX goes through the harness converter when one is composed, and is cac
   const requests: { extension: string; version: string; key: string; read: Uint8Array }[] = []
   const officeToPdf = {
     generation: 'gen-1',
+    config: { maxImageResolution: 192 },
     convert: async (request: {
       extension: string
       priority: string
@@ -143,6 +144,14 @@ test('a DOCX goes through the harness converter when one is composed, and is cac
   const second = await h.tool().execute({ file_path: h.path }, execution(false).exec)
   equal(second.assetUrl, first.assetUrl, 'the same artifact is signed again')
   equal(requests.length, 1, 'and the second display is a cache hit')
+
+  // A restart composes a new provider with a new random generation and the
+  // same configuration: still a hit, not a second artifact.
+  officeToPdf.generation = 'gen-2'
+  const third = await h.tool().execute({ file_path: h.path }, execution(false).exec)
+  equal(third.assetUrl, first.assetUrl, 'the artifact survives a provider restart')
+  equal(requests.length, 1)
+  equal((await readdir(cacheDir)).filter(name => name.endsWith('.pdf')).length, 1)
 })
 
 test('a format the harness converter does not take never reaches it', async () => {
