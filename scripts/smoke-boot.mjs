@@ -171,8 +171,8 @@ function publishedAt(name, version) {
 }
 
 /**
- * A `--before` later than `before` when npm refused one of the train's own
- * packages as not yet published then. Upstream sometimes publishes a train's
+ * A `--before` later than `before` when npm refused a package the train's
+ * graph needs as not yet published then. Upstream sometimes publishes a
  * package after the next @deepseek-ai/dsh (0.1.5-rc.3's
  * sidebar-documentpreview came 6 h later): the release became installable
  * only then.
@@ -195,7 +195,12 @@ function freshProject(dir) {
  * Install `spec` into `dir` the way a user gets it, and say how.
  *
  * As released (`--graph released`, the default): `--before` the next harness
- * publication, moved later if the train's own packages went out after it. The
+ * publication, moved later when a package its graph needs went out after it —
+ * one of the train's own (0.1.5-rc.3), or the peer of a later prerelease its
+ * caret ranges already reach (0.1.0-rc.3: its window ends while 0.1.0-rc.6 is
+ * still being published, and the rc.6 packages it reaches peer on a
+ * `dsh-timeout@0.1.0-rc.6` that went out six minutes after
+ * `@deepseek-ai/dsh@0.1.0-rc.6`). The
  * plain peer graph first; early prereleases carry caret peers that pull a
  * later prerelease of the same tuple, and npm then either answers ERESOLVE or
  * — 0.1.1-rc.2 under npm 11 — burns minutes of CPU before it settles (one CI
@@ -212,7 +217,7 @@ function installHarness(spec, dir) {
   const limit = Number(values['install-timeout-ms'])
   const failed = (what, r) => `${what} ${r.status === null ? `was killed (${r.signal ?? r.error?.code})` : `exited ${r.status}`}: ${mask(`${r.stdout}${r.stderr}`.slice(-2000))}`
 
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  attempts: for (let attempt = 0; attempt < 8; attempt += 1) {
     freshProject(dir)
     const first = run('npm', [...common(), spec], { allowFailure: true, timeout: limit })
     if (first.status === 0) return describe('')
@@ -235,13 +240,17 @@ function installHarness(spec, dir) {
       if (unmet.size === 0) break
       added += unmet.size
       const peers = run('npm', [...common(), '--legacy-peer-deps', ...[...unmet].map(([name, range]) => `${name}@${range}`)], { allowFailure: true })
-      if (peers.status !== 0) fail('harness', failed(`npm install --legacy-peer-deps ${[...unmet.keys()].join(' ')}`, peers))
+      if (peers.status !== 0) {
+        const again = laterCutoff(`${peers.stdout}${peers.stderr}`, before)
+        if (again !== undefined) { before = again; continue attempts }
+        fail('harness', failed(`npm install --legacy-peer-deps ${[...unmet.keys()].join(' ')}`, peers))
+      }
     }
     const left = unmetPeers(join(dir, 'node_modules'))
     if (left.size > 0) fail('harness', `peers still unmet after legacy install: ${[...left.keys()].join(', ')}`)
     return describe(` --legacy-peer-deps + ${added} unmet peers at their ranges (the peer graph ${settled ? 'hit ERESOLVE' : `did not settle within ${Math.round(limit / 1000)} s`})`)
   }
-  fail('harness', `npm install ${spec} kept refusing its own packages as unpublished before ${before}`)
+  fail('harness', `npm install ${spec} kept refusing packages its graph needs as unpublished before ${before}`)
 }
 
 /** Boot `dsh --profile web` in `dshHome`; resolves once the URL is printed and survived, or it failed. */
