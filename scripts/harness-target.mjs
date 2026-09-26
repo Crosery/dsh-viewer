@@ -36,6 +36,13 @@
  * Writes its answers to $GITHUB_OUTPUT when set.
  * Exit 0 ok, 1 hard failure, 3 the train is not (yet) published in full:
  * incomplete, which CI reports as neutral — neither drift nor green.
+ *
+ * Incomplete means npm answered, and answered "not there": the version or a
+ * package this plugin needs does not exist (E404, or the version list lacks
+ * it), or the train's own graph does not install (see `installTrain`). A
+ * registry that did not answer is a hard failure, never incomplete. `pinned`
+ * and `floor` are never incomplete either: they name versions this plugin
+ * claims, so a package missing there is a failure.
  */
 
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
@@ -44,8 +51,8 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import semver from 'semver'
 import {
-  DESKTOP_FEEDS, DIST_TAGS, FLOOR, HARNESS,
-  describeRefusals, harnessPeers, installTrain, parseFeed, planCells, refusals, repointManifest, run, sweepStart, tail, versionsOf, view,
+  DESKTOP_FEEDS, DIST_TAGS, FLOOR, HARNESS, RegistryError,
+  describeRefusals, harnessPeers, harnessVersions, installTrain, parseFeed, planCells, refusals, repointManifest, run, sweepStart, tail, view,
 } from './harness-lib.mjs'
 
 const INCOMPLETE = 3
@@ -124,12 +131,13 @@ async function plan(list) {
   if (cells.includes('sweep')) {
     // Only to recognise which sweep rows a named cell already covers and which
     // deserve a boot smoke; a cell that fails to resolve here fails in its own row.
+    // A registry that does not answer fails the plan: every row would too.
     for (const cell of new Set([...named, 'desktop', ...DIST_TAGS])) {
-      try { resolved[cell] = (await resolveCell(cell)).version } catch {}
+      try { resolved[cell] = (await resolveCell(cell)).version } catch (error) { if (error instanceof RegistryError) throw error }
     }
   }
   const rows = planCells(cells, {
-    published: cells.includes('sweep') ? versionsOf(HARNESS) : [],
+    published: cells.includes('sweep') ? harnessVersions() : [],
     sweepFrom: sweepStart(peers),
     pinned: pinnedVersion(),
     resolved,
@@ -148,9 +156,16 @@ async function target(cell) {
   out('source', source)
   summary(`### harness@${cell} → ${version} (${source})`)
 
+  // What this plugin claims cannot be incomplete: absent there is broken. The
+  // install step names the floor by its version, as it does every other cell.
+  const claimed = cell === 'pinned' || cell === 'floor' || version === FLOOR
+  const incomplete = (message) => (claimed
+    ? new Error(`${message} — and ${version} is a version this plugin claims (${cell === 'pinned' ? 'pinned' : 'the floor'}), so that is a failure, not an incomplete train`)
+    : new Incomplete(message))
+
   // The Web app at the same version must exist, or there is nothing to test.
-  if (cell !== 'pinned' && !versionsOf(HARNESS).includes(version)) {
-    throw new Incomplete(`${HARNESS}@${version} is not on npm yet`)
+  if (cell !== 'pinned' && !harnessVersions().includes(version)) {
+    throw incomplete(`${HARNESS}@${version} is not on npm yet`)
   }
 
   let manifest = pkg
@@ -159,7 +174,7 @@ async function target(cell) {
     if (repointed.missing.length > 0) {
       const missing = repointed.missing.map((m) => `${m.name} (${m.why})`).join(', ')
       out('missing', missing)
-      throw new Incomplete(`not published at ${version}: ${missing}`)
+      throw incomplete(`not published at ${version}: ${missing}`)
     }
     manifest = repointed.manifest
     writeFileSync(pkgPath, JSON.stringify(manifest, null, 2) + '\n')
@@ -180,7 +195,7 @@ async function target(cell) {
       out('via', result.via)
       if (result.via !== 'peer graph') summary(`- installed via ${result.via}`)
       if (!result.ok) {
-        if (result.incomplete) throw new Incomplete(`${HARNESS}@${version} does not install even on its own:\n${tail(result.output, 20)}`)
+        if (result.incomplete) throw incomplete(`${HARNESS}@${version} does not install even on its own:\n${tail(result.output, 20)}`)
         throw new Error(`install failed:\n${tail(result.output, 40)}`)
       }
     }
@@ -224,7 +239,8 @@ try {
     if (message.includes('\n')) console.log(message)
     process.exit(INCOMPLETE)
   }
-  console.error(`::error::${message.split('\n')[0]}`)
+  const title = error instanceof RegistryError ? 'npm registry did not answer' : 'harness cell failed'
+  console.error(`::error title=${title}::${message.split('\n')[0]}`)
   if (message.includes('\n')) console.error(message)
   process.exit(1)
 }

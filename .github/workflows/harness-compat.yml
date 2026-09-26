@@ -31,6 +31,10 @@
 #
 # A train published without a package this plugin needs — or not published on
 # npm yet — is "incomplete": neutral, it neither opens nor closes an issue.
+# Only npm saying "not there" makes a train incomplete; a registry that did not
+# answer fails the cell, and `pinned` and `floor` are never incomplete. Peer
+# admission still runs on an incomplete train: it reads no package, and a
+# version the ranges refuse is drift whether or not npm has it yet.
 #
 # Scheduled and dispatched runs report: a failing cell opens or comments on
 # the `upstream-drift` issue "Harness compatibility broken against @<cell>",
@@ -137,7 +141,7 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
 
       # Exit 3 is an incomplete train: the step passes, `incomplete` is set,
-      # and every later stage stands down.
+      # and every later stage but admission stands down.
       - name: Resolve ${{ matrix.cell }}
         id: target
         run: |
@@ -171,9 +175,10 @@ jobs:
         continue-on-error: true
         run: npm test
 
+      # Needs only the resolved version, so it runs whatever the install did.
       - name: Peer admission
         id: admission
-        if: steps.target.outputs.incomplete != 'true' && steps.install.outputs.incomplete != 'true'
+        if: ${{ !cancelled() && steps.target.outputs.version != '' }}
         continue-on-error: true
         env:
           VERSION: ${{ steps.target.outputs.version }}

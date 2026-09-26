@@ -37,7 +37,7 @@ peer 范围，每个 `@deepseek-ai/dsh-*` peer 都一样：
 
 `0.1.1-rc.1`、`0.1.2-alpha.2` – `alpha.5`、`0.1.5-alpha.1` – `rc.2`、`0.1.6-alpha.1` 和 `0.1.7-alpha.1` 发布的 harness 包带脱字符 peer（`^0.1.1-rc.1`）。npm 自动安装 peer 时会拉进同一元组里更晚的预发布，而那个版本自己的 peer 又和被固定的版本冲突，`npm install` 于是以 `ERESOLVE` 中止。本页早先的版本因此把其中几条称为「发布不完整」。
 
-harness 从来不跑那张图。`@deepseek-ai/dsh` 把它组合的每个包都钉在同一个精确版本上。所以 peer 图失败时，扫描和 CI 改用该版本自己的 `@deepseek-ai/dsh` 来安装改指后的副本，这些版本在那里全部通过。只有当单独安装 `@deepseek-ai/dsh@<版本>` 也失败时，一个版本才算**上游发布不完整**；目前没有这样的版本。
+harness 从来不跑那张图。`@deepseek-ai/dsh` 把它组合的每个包都钉在同一个精确版本上。所以 peer 图失败时（`ERESOLVE`、npm 找不到某个 peer，或 5 分钟内没有结果），扫描和 CI 改用该版本自己的 `@deepseek-ai/dsh` 来安装改指后的副本，这些版本在那里全部通过。只有当接下来单独安装 `@deepseek-ai/dsh@<版本>` 也在依赖图本身上失败（`ERESOLVE`、`ETARGET`、`E404`）时，一个版本才算**上游发布不完整**；目前没有这样的版本。单独安装超时或连不上 registry 什么也证明不了，这时该格直接失败。
 
 ## 0.1.7 的版本门
 
@@ -90,7 +90,8 @@ node-semver 只在范围里**存在某个比较器与该预发布版本的 `majo
 读一次运行结果时要知道的细节：
 
 - **桌面版只有一个频道。** 应用把 `nightly` 写死，而且只构建 `mac-arm64` 和 `win-x64`。两个更新源不一致时 `desktop` 格失败；更新源已公布而 npm 上还没有的版本记为**不完整**。
-- **不完整是中性结果。** 早于本插件所需某个包的版本、npm 上还没有的版本、或者单独安装 `@deepseek-ai/dsh` 都失败的版本，既不开 issue 也不关 issue。
+- **不完整是中性结果。** 早于本插件所需某个包的版本、npm 上还没有的版本、或者单独安装 `@deepseek-ai/dsh` 都失败的版本，既不开 issue 也不关 issue。类型、测试和冒烟在这种版本上不跑；`admission` 照跑，因为它不读任何包，范围拒绝的版本即使 npm 上还不全也算漂移。
+- **只有 npm 明确回答「没有」才算不完整。** registry 没有应答（连接被拒、超时、5xx）时该格失败；npm 一个 `@deepseek-ai/dsh` 版本都列不出来时也一样。`pinned` 和 `floor` 永远不会是不完整：它们是本插件声明支持的版本，那里缺包就是失败。
 - **新版本自己会出现。** 扫描在运行时读取版本列表。落在范围尚未覆盖的元组上的版本（比如 `0.1.8-alpha.1`）会以 `admission` 失败的形式出现，这就是去验证它的提示。
 - **冒烟按发布时的样子安装 harness。** `smoke-boot.mjs --dsh <v>` 会带上 `npm install --before <下一个 @deepseek-ai/dsh 发布的时刻>`；只有该版本自己的某个包发布得比这还晚时才把时刻往后挪（`0.1.5-rc.3` 的 `dsh-client-ui-sidebar-documentpreview` 就发布在 `0.1.7-alpha.1` 之后）。cordis 一族的依赖在每个版本下面都是浮动的，它们 2026-09-22 的发布让全新执行的 `npm i @deepseek-ai/dsh@0.1.1-rc.2` 坏掉了：不装任何插件也启动不了（`user patch-layer watching requires the Cordis HMR service`）。想看今天全新安装得到什么，加 `--graph today`。启动失败时，冒烟会用同一个 harness 不装插件再启动一次，并报告是哪一种情况。
 - **没有任何阶段覆盖**：Electron 渲染进程、桌面版 preload 桥接和原生拖放。这些需要 GUI，靠人工验收（[acceptance.zh.md](acceptance.zh.md)）。

@@ -23,6 +23,9 @@
  *   or an install that fails with ERESOLVE because the train's own packages
  *   disagree (checked against a bare install of `@deepseek-ai/dsh` at the same
  *   version, so a conflict this repository causes is a `fail`, not upstream's).
+ * - `registry error`: npm did not answer for this version (a refused
+ *   connection, a timeout, a 5xx). Nothing is known about it, so it fails the
+ *   sweep rather than passing as `predates` or `incomplete upstream`.
  *
  * Early prereleases declare caret peers (`^0.1.1-rc.1`), so npm's automatic
  * peer install can drag in a LATER prerelease of the same tuple whose own peers
@@ -43,7 +46,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import semver from 'semver'
-import { absence, harnessPeers, HARNESS, installTrain, refusals, repointManifest, run, tail, versionsOf } from './harness-lib.mjs'
+import { absence, harnessPeers, harnessVersions, HARNESS, installTrain, RegistryError, refusals, repointManifest, run, tail, versionsOf } from './harness-lib.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const args = process.argv.slice(2)
@@ -89,7 +92,13 @@ function prepare(version) {
 }
 
 const requested = option('--versions')?.split(',').map((v) => v.trim()).filter(Boolean)
-const versions = (requested ?? versionsOf('@deepseek-ai/dsh')).filter((v) => semver.valid(v)).sort(semver.compare)
+let versions
+try {
+  versions = (requested ?? harnessVersions()).filter((v) => semver.valid(v)).sort(semver.compare)
+} catch (error) {
+  console.error(String(error?.message ?? error))
+  process.exit(1)
+}
 mkdirSync(work, { recursive: true })
 
 const rows = []
@@ -97,16 +106,28 @@ for (const version of versions) {
   const row = { version, admitted: true, refusedBy: [], missing: [], outcome: '', host: '', client: '', tests: '', detail: '' }
   row.refusedBy = refusals(version, peers).map((r) => r.name)
   row.admitted = row.refusedBy.length === 0
-  row.missing = harnessDeps.filter((name) => !versionsOf(name).includes(version)).map((name) => `${name.replace('@deepseek-ai/', '')} (${absence(name, version)})`)
+  try {
+    sweep(version, row)
+  } catch (error) {
+    if (!(error instanceof RegistryError)) throw error
+    row.outcome = 'registry error'
+    row.detail = tail(error.message, 2).replace(/\n/g, ' ')
+    process.stderr.write(`${row.outcome}\n`)
+  }
+  rows.push(row)
+}
+
+/** Settle one version's row: out of scope, or installed and checked. */
+function sweep(version, row) {
   process.stderr.write(`[sweep] ${version}: `)
+  row.missing = harnessDeps.filter((name) => !versionsOf(name).includes(version)).map((name) => `${name.replace('@deepseek-ai/', '')} (${absence(name, version)})`)
 
   if (row.missing.length > 0) {
     const skipped = row.missing.some((entry) => entry.includes('skipped by upstream'))
     row.outcome = skipped ? 'incomplete upstream' : 'predates'
     row.detail = `not published at ${version}: ${row.missing.join(', ')}`
     process.stderr.write(`${row.outcome}\n`)
-    rows.push(row)
-    continue
+    return
   }
 
   const install = prepare(version)
@@ -116,8 +137,7 @@ for (const version of versions) {
       ? `ERESOLVE installing the repointed graph, also through ${HARNESS}@${version}: ${tail(install.output, 3).replace(/\n/g, ' ')}`
       : `install failed: ${tail(install.output, 3).replace(/\n/g, ' ')}`
     process.stderr.write(`${row.outcome}\n`)
-    rows.push(row)
-    continue
+    return
   }
 
   const host = run(install.dir, 'npx', ['--no-install', 'tsc', '--noEmit', '-p', 'tsconfig.json'])
@@ -135,7 +155,6 @@ for (const version of versions) {
   ].filter(Boolean)
   row.detail = [install.via === 'peer graph' ? '' : `installed via ${install.via}`, ...problems].filter(Boolean).join(' | ').replace(/\n/g, ' ')
   process.stderr.write(`${row.outcome}${install.reused ? ' (reused install)' : ''}\n`)
-  rows.push(row)
 }
 
 /** Test files of a scratch copy, in a stable order. */
@@ -153,4 +172,4 @@ console.log(markdown)
 if (option('--markdown')) writeFileSync(option('--markdown'), markdown + '\n')
 if (option('--json')) writeFileSync(option('--json'), JSON.stringify(rows, null, 2) + '\n')
 if (process.env.GITHUB_STEP_SUMMARY) writeFileSync(process.env.GITHUB_STEP_SUMMARY, `### Harness sweep\n\n${markdown}\n`, { flag: 'a' })
-process.exit(rows.some((r) => r.outcome === 'fail' || (r.outcome === 'pass' && !r.admitted)) ? 1 : 0)
+process.exit(rows.some((r) => r.outcome === 'fail' || r.outcome === 'registry error' || (r.outcome === 'pass' && !r.admitted)) ? 1 : 0)

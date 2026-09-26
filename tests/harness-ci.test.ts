@@ -2,14 +2,22 @@
  * The decisions the compatibility pipeline makes, pinned without a network:
  * which versions a sweep covers, which peers refuse a version under which
  * rule, how a feed and a shell bundle are read, how the boot audit is split,
- * and when a drift issue is opened, left alone or closed.
+ * when a train is incomplete rather than failed, and when a drift issue is
+ * opened, left alone or closed. The npm-backed paths run against a registry
+ * served from this process, never the real one.
  */
 
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { execFile } from 'node:child_process'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { createRequire } from 'node:module'
-import { describe, it } from 'node:test'
-import { FLOOR, planCells, parseFeed, refusals, sweepStart, tupleHeads } from '../scripts/harness-lib.mjs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { after, before, describe, it } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { FLOOR, graphFailed, npmErrorCode, planCells, parseFeed, refusals, registryFailed, sweepStart, tupleHeads } from '../scripts/harness-lib.mjs'
 import { bootGraphOf, classifyDiagnostics, exportedNames, maskTokens, membersRead, moduleTableOf, publishedTooLate } from '../scripts/smoke-lib.mjs'
 
 const require = createRequire(import.meta.url)
@@ -220,11 +228,155 @@ describe('verdict', () => {
     assert.deepEqual(calls, [])
   })
 
+  it('reports an incomplete train whose version the peer ranges refuse', async () => {
+    const issues: Issue[] = []
+    const { github, calls } = fakeGithub(issues)
+    const { core, state } = fakeCore()
+    const result = await verdict({ github, context, core, env: { CELL: 'desktop', VERSION: '0.1.8-rc.1', REPORT: 'true', INCOMPLETE: 'true', EXPECTED: 'types,tests,admission,smoke', ...stages({ resolve: 'success', install: '', types: '', tests: '', admission: 'failure', smoke: '' }) } })
+    assert.deepEqual(result.failed, ['admission'])
+    assert.deepEqual(calls, ['create Harness compatibility broken against @desktop'])
+    assert.match(state.failed, /admission/)
+  })
+
   it('fails the job but files nothing when not reporting', async () => {
     const { github, calls } = fakeGithub([])
     const { core, state } = fakeCore()
     await verdict({ github, context, core, env: { CELL: 'floor', REPORT: 'false', EXPECTED: 'types', ...stages({ types: 'failure' }) } })
     assert.deepEqual(calls, [])
     assert.match(state.failed, /types/)
+  })
+})
+
+describe('registry failures are failures, not incomplete trains', () => {
+  const repo = fileURLToPath(new URL('..', import.meta.url))
+  /** A copy of what the scripts need, so no run can rewrite this checkout's manifest. */
+  let copy = ''
+  let cache = ''
+  const servers: Server[] = []
+
+  /** A registry that knows `packuments` and answers 404 for anything else, or 500 for everything. */
+  async function registry(mode: '500' | Record<string, string[]>): Promise<string> {
+    const server = createServer((req, res) => {
+      const name = decodeURIComponent((req.url ?? '/').slice(1).split('?')[0]!)
+      res.setHeader('content-type', 'application/json')
+      if (mode === '500') { res.statusCode = 500; res.end('{"error":"boom"}'); return }
+      const versions = mode[name]
+      if (versions === undefined) { res.statusCode = 404; res.end('{"error":"Not found"}'); return }
+      res.end(JSON.stringify({
+        name,
+        'dist-tags': { latest: versions.at(-1) },
+        versions: Object.fromEntries(versions.map((version) => [version, { name, version }])),
+      }))
+    })
+    servers.push(server)
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok))
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}/`
+  }
+  /** Nothing listens on the discard port: every request is refused. */
+  const DOWN = 'http://127.0.0.1:9/'
+
+  function node(args: string[], registryUrl: string): Promise<{ code: number; stdout: string; stderr: string }> {
+    const env = {
+      ...process.env,
+      npm_config_registry: registryUrl, npm_config_cache: cache, npm_config_fetch_retries: '0',
+      npm_config_update_notifier: 'false', GITHUB_OUTPUT: '', GITHUB_STEP_SUMMARY: '',
+    }
+    return new Promise((ok) => {
+      execFile(process.execPath, args, { cwd: copy, env, encoding: 'utf8', timeout: 60_000 }, (error, stdout, stderr) => {
+        ok({ code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1, stdout, stderr })
+      })
+    })
+  }
+  /** Run a snippet against harness-lib; it prints one JSON line. */
+  const lib = (code: string, registryUrl: string) =>
+    node(['--input-type=module', '-e', `import * as lib from ${JSON.stringify(join(copy, 'scripts/harness-lib.mjs'))}\n${code}`], registryUrl)
+
+  before(() => {
+    copy = mkdtempSync(join(tmpdir(), 'dsh-viewer-registry-'))
+    cache = join(copy, '.npm-cache')
+    mkdirSync(join(copy, 'scripts'))
+    for (const file of ['harness-lib.mjs', 'harness-target.mjs', 'sweep-trains.mjs']) cpSync(join(repo, 'scripts', file), join(copy, 'scripts', file))
+    for (const file of ['package.json', 'package-lock.json']) cpSync(join(repo, file), join(copy, file))
+    symlinkSync(join(repo, 'node_modules'), join(copy, 'node_modules'), 'dir')
+  })
+  after(() => {
+    for (const server of servers) server.close()
+    rmSync(copy, { recursive: true, force: true })
+  })
+
+  it('tells a registry that did not answer from a graph that does not resolve', () => {
+    assert.ok(registryFailed('npm error code ECONNREFUSED\nnpm error errno ECONNREFUSED'))
+    assert.ok(registryFailed('npm error code E503\nnpm error 503 Service Unavailable - GET https://registry.npmjs.org/x'))
+    assert.ok(registryFailed('npm error code EAI_AGAIN'))
+    assert.ok(!registryFailed('npm error code ERESOLVE\nnpm error ERESOLVE could not resolve'))
+    assert.ok(graphFailed('npm error code ETARGET\nnpm error notarget No matching version found for x@9.9.9.'))
+    assert.ok(graphFailed('npm error code E404\nnpm error 404 Not Found - GET http://127.0.0.1/x'))
+    assert.ok(!graphFailed('npm error code ECONNRESET'))
+    assert.equal(npmErrorCode('{"error":{"code":"E404","summary":"Not found"}}', ''), 'E404')
+    assert.equal(npmErrorCode('', 'npm error code ECONNREFUSED\n'), 'ECONNREFUSED')
+  })
+
+  it('reads E404 as "does not exist" and anything else as a registry error', async () => {
+    const known = await registry({ '@deepseek-ai/dsh': ['0.1.7-rc.2'] })
+    const probe = `
+      const out = {}
+      for (const [key, spec, field] of [['missing', '@crosery/surely-not-published', 'versions'], ['version', '@deepseek-ai/dsh@9.9.9', 'version'], ['list', '@deepseek-ai/dsh', 'versions']]) {
+        try { out[key] = lib.view(spec, field) ?? null } catch (error) { out[key] = error.constructor.name }
+      }
+      console.log(JSON.stringify(out))`
+    assert.deepEqual(JSON.parse((await lib(probe, known)).stdout), { missing: null, version: null, list: ['0.1.7-rc.2'] })
+    for (const url of [DOWN, await registry('500')]) {
+      const { stdout } = await lib(`try { lib.versionsOf('@deepseek-ai/dsh'); console.log('"answered"') } catch (error) { console.log(JSON.stringify(error.constructor.name)) }`, url)
+      assert.equal(JSON.parse(stdout), 'RegistryError', url)
+    }
+  })
+
+  it('fails a cell when the registry is down instead of calling the train incomplete', async () => {
+    for (const url of [DOWN, await registry('500')]) {
+      const r = await node(['scripts/harness-target.mjs', '0.1.7-rc.2', '--admits'], url)
+      assert.equal(r.code, 1, `${url}: ${r.stdout}${r.stderr}`)
+      assert.doesNotMatch(r.stdout, /incomplete=true/)
+      assert.match(r.stderr, /npm registry did not answer/)
+    }
+  })
+
+  it('calls a version npm does not have incomplete, but never the floor or an empty harness', async () => {
+    const url = await registry({ '@deepseek-ai/dsh': ['0.1.7-rc.1', '0.1.7-rc.2'] })
+    const absent = await node(['scripts/harness-target.mjs', '9.9.9'], url)
+    assert.equal(absent.code, 3, absent.stderr)
+    assert.match(absent.stdout, /incomplete=true/)
+
+    const floor = await node(['scripts/harness-target.mjs', 'floor'], url)
+    assert.equal(floor.code, 1, floor.stdout)
+    assert.match(floor.stderr, /claims \(the floor\)/)
+    // The install step names the floor by its version.
+    assert.equal((await node(['scripts/harness-target.mjs', FLOOR], url)).code, 1)
+
+    const nothing = await registry({})
+    const plan = await node(['scripts/harness-target.mjs', '--plan', 'sweep'], nothing)
+    assert.equal(plan.code, 1, plan.stdout)
+    assert.doesNotMatch(plan.stdout, /matrix=/)
+    assert.match(plan.stderr, /lists no version of @deepseek-ai\/dsh/)
+  })
+
+  it('installs through the train only on a graph failure, and calls it incomplete only when upstream fails too', async () => {
+    const install = (url: string) => lib(`
+      const dir = ${JSON.stringify(join(copy, 'train'))}
+      const { mkdirSync } = await import('node:fs')
+      mkdirSync(dir, { recursive: true })
+      const manifest = { name: 'probe', version: '0.0.0', private: true, devDependencies: { 'not-published-anywhere': '1.0.0' } }
+      try {
+        const r = lib.installTrain(dir, manifest, '0.1.7-rc.2')
+        console.log(JSON.stringify({ ok: r.ok, incomplete: r.incomplete, via: r.via }))
+      } catch (error) { console.log(JSON.stringify(error.constructor.name)) }`, url)
+    const empty = JSON.parse((await install(await registry({}))).stdout)
+    assert.deepEqual(empty, { ok: false, incomplete: true, via: '@deepseek-ai/dsh@0.1.7-rc.2 graph (the peer graph named a package npm cannot find)' })
+    assert.equal(JSON.parse((await install(DOWN)).stdout), 'RegistryError')
+  })
+
+  it('fails the sweep on a registry error instead of passing the version as out of scope', async () => {
+    const r = await node(['scripts/sweep-trains.mjs', '--versions', '0.1.7-rc.2', '--work', join(copy, 'sweep')], DOWN)
+    assert.equal(r.code, 1, r.stdout)
+    assert.match(r.stdout, /\| 0\.1\.7-rc\.2 \| yes \| registry error \|/)
   })
 })

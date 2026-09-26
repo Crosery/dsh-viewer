@@ -15,7 +15,8 @@
  *   one; a cell whose every expected stage succeeded comments on that issue
  *   and closes it. An incomplete train (published without packages this
  *   plugin needs, or not yet at all) does neither: it is not drift, and it is
- *   not evidence that drift was fixed.
+ *   not evidence that drift was fixed — unless a stage that still ran on it
+ *   failed (admission: the ranges refuse the version).
  *
  * CommonJS because github-script evaluates the step as a CommonJS function
  * body and this repository is `"type": "module"`.
