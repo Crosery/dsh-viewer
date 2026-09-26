@@ -37,7 +37,7 @@ Keep the branch rebased on `main` rather than merging `main` into it — the his
 
 | Check | Trigger | What it guards |
 | --- | --- | --- |
-| `CI` → `node 22.19`, `node 24` | push, PR | typecheck (both halves), build, 123 tests, invariants, dist freshness, client bundle purity, packed-tarball contents |
+| `CI` → `node 22.19`, `node 24` | push, PR | typecheck (both halves), build, 165 tests, invariants, dist freshness, client bundle purity, packed-tarball contents |
 | `CI` → `harness / harness@pinned`, `harness / harness@floor` | push, PR | on the pinned train and on the `0.1.1-rc.2` floor: typecheck and tests against that version's packages, peer admission under both semver rules, and a boot smoke of the packed plugin in a real `dsh --profile web` |
 | `CI` → `desktop / harness@desktop` | push, PR | the same four stages on the version the desktop app ships today. Visible, but not a required check: the feed can move under an open PR |
 | `PR review` → `invariants` | PR, forks included | the same invariant checker, so an external contributor gets the same feedback |
