@@ -170,9 +170,7 @@ export declare function officeArtifactName(identity: string, source: Pick<Office
  *
  * The provider hands the PDF back as bytes, but the asset route serves files:
  * the bytes are written into this plugin's own cache and signed there, like a
- * LibreOffice artifact. The write lands under a unique temporary name first and
- * is renamed into place, so a concurrent reader either finds no artifact or a
- * complete one.
+ * LibreOffice artifact, through {@link placeArtifact}.
  * @param converter - the harness `officeToPdf` service.
  * @param source - the document and its bounded reader.
  * @param cacheDir - directory owning converted artifacts.

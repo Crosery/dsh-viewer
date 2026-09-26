@@ -6,9 +6,9 @@
 
 import { deepEqual, equal, notEqual, ok } from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, stat, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 import {
@@ -88,6 +88,9 @@ test('a real DOCX converts to a PDF and the second call is a cache hit', { skip:
   ok(artifact.startsWith(cache))
   const head = (await readFile(artifact)).subarray(0, 5).toString('latin1')
   equal(head, '%PDF-', 'the artifact is a real PDF')
+  // LibreOffice writes into the system temp directory; the PDF is copied into
+  // the cache under a partial name and renamed there, leaving only itself.
+  deepEqual(await readdir(cache), [basename(artifact)])
 
   const before = await stat(artifact)
   const bytes = await readFile(artifact)

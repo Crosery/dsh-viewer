@@ -38,6 +38,21 @@ export declare const CACHE_LIMITS: CacheLimits;
  */
 export declare function isArtifactName(name: string): boolean;
 /**
+ * Write an artifact into place.
+ *
+ * The bytes land under a unique partial name beside the artifact — in the cache
+ * directory itself, never in the system temp directory — and are renamed into
+ * place last. Beside it because `rename` only works within one filesystem: a
+ * temp directory on another mount (a Linux `tmpfs` `/tmp`) fails it with
+ * `EXDEV`. Renamed last so a reader either finds no artifact or a complete
+ * one, never a half-written file served to a PDF viewer. The partial name is
+ * one {@link pruneCache} recognizes, so even a process killed mid-write leaves
+ * nothing behind for long; any failure here removes it at once.
+ * @param artifact - the artifact's absolute path.
+ * @param write - writes the complete bytes to the path it is given.
+ */
+export declare function placeArtifact(artifact: string, write: (partial: string) => Promise<void>): Promise<void>;
+/**
  * Stamp an artifact as used now, if it exists.
  *
  * Doubles as the cache-hit test: a successful stamp is a hit, and the stamp is

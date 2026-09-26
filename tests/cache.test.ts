@@ -3,12 +3,14 @@
  * a count and a byte cap, touching nothing it did not write.
  */
 
-import { deepEqual, equal, ok } from 'node:assert/strict'
-import { mkdir, mkdtemp, readdir, stat, symlink, utimes, writeFile } from 'node:fs/promises'
+import { deepEqual, equal, ok, rejects } from 'node:assert/strict'
+import { mkdir, mkdtemp, readdir, readFile, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
-import { CACHE_LIMITS, isArtifactName, pruneCache, schedulePrune, useArtifact, useServedArtifact, type CacheLimits } from '../src/cache.ts'
+import {
+  CACHE_LIMITS, isArtifactName, placeArtifact, pruneCache, schedulePrune, useArtifact, useServedArtifact, type CacheLimits,
+} from '../src/cache.ts'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.UTC(2026, 8, 26)
@@ -129,4 +131,42 @@ test('prunes requested during a prune fold into one more pass, and never reject'
   await first
   deepEqual(await readdir(dir), [name(1)])
   await schedulePrune(join(dir, name(1)), tight) // not a directory: logged, not thrown
+})
+
+test('an artifact is written beside its final path, so the rename never crosses a filesystem', async () => {
+  const dir = await cacheWith([])
+  const artifact = join(dir, name(1))
+  let partial = ''
+  await placeArtifact(artifact, async (path) => {
+    partial = path
+    await writeFile(path, '%PDF-1.7')
+  })
+  // Same directory is what makes the final rename same-filesystem: a partial in
+  // the system temp directory is what failed with EXDEV on a tmpfs /tmp.
+  equal(dirname(partial), dir)
+  equal(await readFile(artifact, 'utf8'), '%PDF-1.7')
+  deepEqual(await readdir(dir), [name(1)], 'nothing but the artifact is left')
+})
+
+test('a failed write leaves nothing behind, and an abandoned one is a name the prune removes', async () => {
+  const dir = await cacheWith([])
+  let partial = ''
+  await rejects(placeArtifact(join(dir, name(1)), async (path) => {
+    partial = path
+    await writeFile(path, 'half a PDF')
+    throw new Error('disk full')
+  }), /disk full/)
+  deepEqual(await readdir(dir), [], 'the partial is removed on failure')
+
+  // A rename that fails — here the artifact path is taken by a directory —
+  // cleans up as well.
+  await mkdir(join(dir, name(2)))
+  await rejects(placeArtifact(join(dir, name(2)), path => writeFile(path, '%PDF-1.7')))
+  deepEqual(await readdir(dir), [name(2)])
+
+  // A process killed between write and rename skips the cleanup entirely;
+  // the name it would have left is one the prune recognizes.
+  const abandoned = partial.slice(dir.length + 1)
+  const stale = await cacheWith([{ file: abandoned, ageDays: 3 }])
+  deepEqual(await pruneCache(stale, CACHE_LIMITS, NOW), [join(stale, abandoned)])
 })

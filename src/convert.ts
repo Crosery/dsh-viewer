@@ -25,12 +25,13 @@
  */
 
 import { execFile } from 'node:child_process'
-import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { constants } from 'node:fs'
+import { copyFile, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import { promisify } from 'node:util'
-import { schedulePrune, useArtifact } from './cache.ts'
+import { placeArtifact, schedulePrune, useArtifact } from './cache.ts'
 
 const run = promisify(execFile)
 
@@ -175,9 +176,9 @@ export async function convertDocument(
       if (produced === undefined) {
         throw new Error(`cannot preview "${basename(sourcePath)}": LibreOffice produced no PDF for it`)
       }
-      // Rename into place last: a reader either sees no artifact or a complete
-      // one, never a half-written file being served to a PDF viewer.
-      await rename(join(work, produced), artifact)
+      // Copied into the cache, not renamed there: the work directory is under
+      // the system temp directory, which may be another filesystem.
+      await placeArtifact(artifact, partial => copyFile(join(work, produced), partial, constants.COPYFILE_EXCL))
       void schedulePrune(cacheDir)
       return artifact
     } finally {
@@ -327,9 +328,7 @@ export function officeArtifactName(identity: string, source: Pick<OfficeSource, 
  *
  * The provider hands the PDF back as bytes, but the asset route serves files:
  * the bytes are written into this plugin's own cache and signed there, like a
- * LibreOffice artifact. The write lands under a unique temporary name first and
- * is renamed into place, so a concurrent reader either finds no artifact or a
- * complete one.
+ * LibreOffice artifact, through {@link placeArtifact}.
  * @param converter - the harness `officeToPdf` service.
  * @param source - the document and its bounded reader.
  * @param cacheDir - directory owning converted artifacts.
@@ -362,13 +361,7 @@ export async function convertWithOfficeToPdf(
   }, signal)
 
   await mkdir(cacheDir, { recursive: true })
-  const partial = `${artifact}.${process.pid}.${randomUUID()}.partial`
-  try {
-    await writeFile(partial, result.pdf, { flag: 'wx' })
-    await rename(partial, artifact)
-  } finally {
-    await rm(partial, { force: true })
-  }
+  await placeArtifact(artifact, partial => writeFile(partial, result.pdf, { flag: 'wx' }))
   void schedulePrune(cacheDir)
   return artifact
 }
