@@ -124,7 +124,7 @@ Where to edit them depends on the harness train:
 
 **`read` on binary media is not an error.** The shipped filesystem provider samples the file head and throws `FS_NOT_TEXT` on a NUL byte, so `read` aimed at a PNG paints a red failure row with or without this plugin — for a file that exists and is one call away from being on screen. Neither obvious correction removes it: a `tools/pre-execute` denial materializes its own error, and a `tools/post-execute` decision cannot replace the value of a failed result. So the correction runs in the `tools/execute` around-dispatch waterfall and never calls `next()` — no filesystem I/O happens at all, and the authored success is re-projected through the owning tool's own `render` and `presentationMeta`, which replaces the persisted read metadata too. The result is an ordinary successful read whose one line points at `display_file`.
 
-**Guidance that divides the work.** A short system-prompt section tells the model when to call `display_file`. It sits right after the shipped read guidance — order 101 up to 0.1.5, `getSectionOrder('TOOL_READ') + 1` from 0.1.7 — and is empty for an agent that cannot call the tool. Where the harness also offers `present`, it leaves deliverables to `present` and pictures inside an answer to markdown images, so one file is never displayed, embedded and presented at once.
+**Guidance that divides the work.** A short system-prompt section tells the model when to call `display_file`. It sits right after the shipped read guidance — order 101 up to 0.1.1, `getSectionOrder('TOOL_READ') + 1` from 0.1.2 — and is empty for an agent that cannot call the tool. It mentions the `read` redirect only while `redirectRead` is on. Where the harness also offers `present`, it leaves deliverables to `present` and pictures inside an answer to markdown images, so one file is never displayed, embedded and presented at once.
 
 **One image entry point.** `read_image` and `display_file` overlap on exactly one thing — putting a raster into model context — and a model offered both uses both. Measured on a real 2.2 MB PNG: the same image entered context twice in one turn. `display_file` is a strict superset, so `read_image` is hidden per agent via `tools.restrict()` on `agent/created`, retried on `tools/change` because the shipped tool registers behind an async service injection.
 
@@ -144,7 +144,7 @@ npm run typecheck   # host and client are separate programs — see below
 npm run build       # two .d.ts trees + two bundles; the result is committed
 npm run check       # repo invariants: README counts, locale keys, peer range, install path
 npm run check:dist  # the committed lib/ is byte-identical to a fresh build
-npm test            # 146 cases
+npm test            # 147 cases
 ```
 
 Two tsconfigs are required, not fastidiousness: both halves augment the same `@deepseek-ai/cordis` `Context`, and `sessions` is `SessionStore` on the host but `ISessions` in the browser. One program seeing both augmentations silently resolves the wrong one, because `skipLibCheck` hides the conflict.

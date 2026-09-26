@@ -156,9 +156,9 @@ test('the agent/created listener returns undefined, as the 0.1.6+ serial event r
 // --- the prompt section ---------------------------------------------------
 
 test('the section sits right after the read guidance on every train', () => {
-  // 0.1.7 allocates orders centrally: TOOL_READ is 1100.
+  // From 0.1.2 orders are allocated centrally: TOOL_READ is 1100.
   equal(displaySectionOrder({ getSectionOrder: (name: string) => (name === 'TOOL_READ' ? 1100 : 0) }), 1101)
-  // Earlier trains have no lookup, and the read guidance sat at 100.
+  // 0.1.1 and earlier have no lookup, and the read guidance sat at 100.
   equal(displaySectionOrder({}), 101)
   equal(displaySectionOrder(undefined), 101)
   // A lookup that does not know the name must not take the plugin down.
@@ -167,16 +167,24 @@ test('the section sits right after the read guidance on every train', () => {
 })
 
 test('the section is empty wherever display_file is not callable', () => {
-  equal(displaySectionText(() => false), '')
-  equal(displaySectionText(tool => tool === 'present'), '', 'present alone is not a reason to talk about display_file')
+  equal(displaySectionText(() => false, true), '')
+  equal(displaySectionText(tool => tool === 'present', true), '', 'present alone is not a reason to talk about display_file')
+})
+
+test('the section promises a pointer back from read only while the redirect is on', () => {
+  const on = displaySectionText(tool => tool === 'display_file', true)
+  match(on, /returns a pointer back to display_file/)
+  const off = displaySectionText(tool => tool === 'display_file', false)
+  ok(!/pointer/.test(off), 'with redirectRead off, read on a binary file is not answered with a pointer')
+  match(off, /only decodes UTF-8 text/)
 })
 
 test('the section defers deliverables to present only where present exists', () => {
-  const alone = displaySectionText(tool => tool === 'display_file')
+  const alone = displaySectionText(tool => tool === 'display_file', true)
   match(alone, /display_file/)
   ok(!/present/.test(alone), 'no mention of a tool the model does not have')
 
-  const both = displaySectionText(tool => tool === 'display_file' || tool === 'present')
+  const both = displaySectionText(tool => tool === 'display_file' || tool === 'present', true)
   match(both, /inline preview and playback/)
   match(both, /present tool/)
   match(both, /markdown image/)
@@ -197,7 +205,8 @@ test('the registered section reads tool visibility per assembly scope', () => {
     tools: { get: (name: string, scope?: unknown) => (visible.get(scope)?.has(name) ? { name } : undefined) },
     on: () => {},
   }
-  applyReadRedirect(ctx as never, () => true)
+  let redirecting = true
+  applyReadRedirect(ctx as never, () => redirecting)
   equal(sections.length, 1)
   const section = sections[0]!
   equal(section.name, 'tool:display-file')
@@ -206,6 +215,9 @@ test('the registered section reads tool visibility per assembly scope', () => {
   const text = section.text as (context: { scope?: unknown }) => string
   match(text({ scope: 'agent-with' }), /present tool/)
   equal(text({ scope: 'agent-without' }), '', 'a restricted-away or switched-off tool is not advertised')
+  match(text({ scope: 'agent-with' }), /pointer back/)
+  redirecting = false
+  ok(!/pointer back/.test(text({ scope: 'agent-with' })), 'the redirectRead setting is read live, per assembly')
 })
 
 // --- settings schema ------------------------------------------------------

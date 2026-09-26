@@ -152,7 +152,7 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 
 所以纠正放在 **`tools/execute`（around-dispatch）**，并且**不调用 `next()`**：注定失败的读取根本不发生，一次文件 I/O 都没有。返回的自造结果会经过 `normalizeDispatchResult`，对成功结果它会**用本插件给的 value 重跑该工具自己的 `output.render` 和 `output.presentationMeta`**——于是持久化的 read 元数据也被替换掉，出厂 read 卡片照常渲染，只不过内容是一行指向 `display_file` 的说明，而且是一次**普通的成功读取**。
 
-配套还有一段系统提示词，紧跟出厂 `tool:read` 的指引：0.1.5 及以前是 order 101（出厂是 100），0.1.7 起取 `getSectionOrder('TOOL_READ') + 1`。当前 agent 调不到 `display_file` 时这段为空；在提供 `present` 的版本上，它把交付物让给 `present`、把答案里的配图让给 markdown 图片，避免同一个文件被展示、内嵌、交付三遍。`.html` **不在**纠正范围内：读 HTML 源码是正当的文本读取，显示它是另一个意图。
+配套还有一段系统提示词，紧跟出厂 `tool:read` 的指引：0.1.1 及以前是 order 101（出厂是 100），0.1.2 起取 `getSectionOrder('TOOL_READ') + 1`。当前 agent 调不到 `display_file` 时这段为空；只有 `redirectRead` 打开时它才提到 `read` 会被引回 `display_file`；在提供 `present` 的版本上，它把交付物让给 `present`、把答案里的配图让给 markdown 图片，避免同一个文件被展示、内嵌、交付三遍。`.html` **不在**纠正范围内：读 HTML 源码是正当的文本读取，显示它是另一个意图。
 
 ## 完成的轮次仍把展示过的文件留在屏幕上
 
@@ -199,7 +199,7 @@ npm run typecheck     # 两个 program 分开检查
 npm run build         # 两份 .d.ts + 两个 bundle（产物提交进仓库，改动后要一并提交）
 npm run check         # 仓库不变式（README 计数、locale 键、peer 范围、安装路径）
 npm run check:dist    # 提交的 lib/ 与重新构建逐字节一致
-npm test              # 146 个用例
+npm test              # 147 个用例
 ```
 
 v0.1.1 时在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet-5 路由，headless Chrome 驱动；0.2.0 在 0.1.7-rc.2 的 Web 与桌面版上的实测见 [docs/acceptance.zh.md](docs/acceptance.zh.md)）：

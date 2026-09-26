@@ -93,7 +93,7 @@ export function isMisdirectedRead(name: string, args: unknown): boolean {
 /** Wire name of the harness's own deliverable tool (`dsh-tool-present`, 0.1.7). */
 export const PRESENT_TOOL = 'present'
 
-/** Order of the shipped `tool:read` guidance before prompt orders were allocated centrally. */
+/** Order of the shipped `tool:read` guidance before prompt orders were allocated centrally (0.1.1 and earlier). */
 const LEGACY_READ_ORDER = 100
 
 /** The slice of the prompt registry {@link displaySectionOrder} probes. */
@@ -104,7 +104,7 @@ interface SectionOrders {
 /**
  * Where the display guidance goes: directly after the shipped read guidance.
  *
- * Up to 0.1.5 tool guidance sat at 100–199 with `tool:read` at 100. From 0.1.7
+ * Up to 0.1.1 tool guidance sat at 100–199 with `tool:read` at 100. From 0.1.2
  * orders are allocated centrally (`TOOL_READ` is 1100) behind
  * `getSectionOrder`; a hard-coded 101 there would put this section ahead of
  * every tool's guidance instead of beside the read tool's.
@@ -133,12 +133,20 @@ export function displaySectionOrder(registry: unknown): number {
  * three ways of putting a file in front of the user are divided explicitly:
  * without that, a model reading both this section and the harness's own
  * deliverable guidance tends to display, embed and present the same file.
+ *
+ * The redirect is described only while it is on: with `redirectRead` off, a
+ * `read` of a binary file fails or returns undecodable text, and a prompt that
+ * promised a pointer back would be the model's only, wrong, expectation.
  * @param visible - whether a tool is visible in the assembling scope.
+ * @param redirecting - whether `read` on binary media is currently redirected.
  * @returns the section text, or `''`.
  */
-export function displaySectionText(visible: (tool: string) => boolean): string {
+export function displaySectionText(visible: (tool: string) => boolean, redirecting: boolean): string {
   if (!visible(DISPLAY_TOOL)) return ''
-  const base = `Use the ${DISPLAY_TOOL} tool when the user asks to see, view, open, play, watch, or listen to a file: it previews an image, video, audio file, PDF, Office document (Word/Excel/PowerPoint), or HTML page inline in this conversation with a real player or viewer. The ${READ_TOOL} tool decodes UTF-8 text and cannot open any of them; calling it on one returns a pointer back to ${DISPLAY_TOOL} and nothing else.`
+  const read = redirecting
+    ? `The ${READ_TOOL} tool only decodes UTF-8 text and cannot show any of them; calling it on an image, video, audio, PDF or Office file returns a pointer back to ${DISPLAY_TOOL} and nothing else.`
+    : `The ${READ_TOOL} tool only decodes UTF-8 text and cannot show any of them.`
+  const base = `Use the ${DISPLAY_TOOL} tool when the user asks to see, view, open, play, watch, or listen to a file: it previews an image, video, audio file, PDF, Office document (Word/Excel/PowerPoint), or HTML page inline in this conversation with a real player or viewer. ${read}`
   if (!visible(PRESENT_TOOL)) return base
   return `${base} ${DISPLAY_TOOL} is for inline preview and playback only, not for delivering files: hand over finished deliverables with the ${PRESENT_TOOL} tool, and show an image as part of your answer with a markdown image, as your other instructions describe. Choose exactly one of these for any given file — never display, embed, and present the same file.`
 }
@@ -158,7 +166,7 @@ export function applyReadRedirect(ctx: Context, enabled: () => boolean): void {
     order: displaySectionOrder(ctx.systemPrompt),
     // Evaluated per assembly, against that assembly's scope: the same registry
     // lookup a presenter uses, so a restricted-away tool reads as absent.
-    text: ({ scope }) => displaySectionText(tool => ctx.tools.get(tool, scope) !== undefined),
+    text: ({ scope }) => displaySectionText(tool => ctx.tools.get(tool, scope) !== undefined, enabled()),
   })
 
   ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {

@@ -71,7 +71,7 @@ export declare const PRESENT_TOOL = "present";
 /**
  * Where the display guidance goes: directly after the shipped read guidance.
  *
- * Up to 0.1.5 tool guidance sat at 100–199 with `tool:read` at 100. From 0.1.7
+ * Up to 0.1.1 tool guidance sat at 100–199 with `tool:read` at 100. From 0.1.2
  * orders are allocated centrally (`TOOL_READ` is 1100) behind
  * `getSectionOrder`; a hard-coded 101 there would put this section ahead of
  * every tool's guidance instead of beside the read tool's.
@@ -88,10 +88,15 @@ export declare function displaySectionOrder(registry: unknown): number;
  * three ways of putting a file in front of the user are divided explicitly:
  * without that, a model reading both this section and the harness's own
  * deliverable guidance tends to display, embed and present the same file.
+ *
+ * The redirect is described only while it is on: with `redirectRead` off, a
+ * `read` of a binary file fails or returns undecodable text, and a prompt that
+ * promised a pointer back would be the model's only, wrong, expectation.
  * @param visible - whether a tool is visible in the assembling scope.
+ * @param redirecting - whether `read` on binary media is currently redirected.
  * @returns the section text, or `''`.
  */
-export declare function displaySectionText(visible: (tool: string) => boolean): string;
+export declare function displaySectionText(visible: (tool: string) => boolean, redirecting: boolean): string;
 /**
  * Install the correction and the prompt section that makes it unnecessary.
  *
