@@ -37,12 +37,12 @@ Keep the branch rebased on `main` rather than merging `main` into it — the his
 
 | Check | Trigger | What it guards |
 | --- | --- | --- |
-| `CI` → `node 22.19`, `node 24` | push, PR | typecheck (both halves), build, 165 tests, invariants, dist freshness, client bundle purity, packed-tarball contents |
+| `CI` → `node 22.19`, `node 24` | push, PR | typecheck (both halves), build, 174 tests, invariants, dist freshness, client bundle purity, packed-tarball contents |
 | `CI` → `harness / harness@pinned`, `harness / harness@floor` | push, PR | on the pinned train and on the `0.1.1-rc.2` floor: typecheck and tests against that version's packages, peer admission under both semver rules, and a boot smoke of the packed plugin in a real `dsh --profile web` |
 | `CI` → `desktop / harness@desktop` | push, PR | the same four stages on the version the desktop app ships today. Visible, but not a required check: the feed can move under an open PR |
 | `PR review` → `invariants` | PR, forks included | the same invariant checker, so an external contributor gets the same feedback |
 | `PR review` → `claude` | PR from this repo, only when `ANTHROPIC_API_KEY` exists | judgement: purity of display projections, card degradation, claim accuracy, whether the tests could falsify anything |
-| `Harness compatibility` | daily, weekly, manual | daily: the desktop app, npm `latest` / `next` / `alpha`, and the desktop zip itself; weekly: every published harness version. Opens and closes `upstream-drift` issues — see [harness-compatibility.md](harness-compatibility.md) |
+| `Harness compatibility` | daily, weekly, manual | daily: the desktop app, npm `latest` / `next` / `alpha`, and the desktop zip itself; weekly: every published harness version, with a boot smoke on every one that installs. Opens and closes `upstream-drift` issues — see [harness-compatibility.md](harness-compatibility.md) |
 
 The required checks in branch protection are the two `node` legs, `harness / harness@pinned` and `harness / harness@floor`.
 
@@ -51,7 +51,7 @@ Four of those assert things a normal test run cannot:
 - **Client bundle purity.** `lib/client.js` may only `require` specifiers the oldest supported shell's module table answers. Anything else throws when the plugin activates in a browser; no test would ever see it.
 - **Packed tarball contents.** Without `cordis.patch.yml` in the package, dsh installs the plugin and activates no layer: present, and doing nothing.
 - **Peer admission.** From 0.1.7 the harness refuses to install or load a plugin whose peer ranges do not admit it. v0.1.1 passed every other check and still showed nothing in the 0.1.7 desktop app.
-- **Boot smoke.** The packed plugin is installed with `dsh plugin add` and no exemption, the harness boots, the startup audit names nothing of ours, and the served browser bundle evaluates against that train's real module table.
+- **Boot smoke.** The packed plugin is installed with `dsh plugin add` and no exemption, the harness boots, the startup audit names nothing of ours, the served browser bundle evaluates against that train's real module table, and headless Chrome mounts the app with the plugin running and no error naming it.
 
 To run the harness stages locally before pushing, see [harness-compatibility.md](harness-compatibility.md#what-ci-checks-and-when).
 

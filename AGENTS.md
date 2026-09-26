@@ -14,7 +14,7 @@
 npm run build && grep -o 'require("[^"]*")' lib/client.js | sort -u
 ```
 
-只应出现 `react`、`react/jsx-runtime` 和 `react-dom`。CI 断言的正是这三个，外加从 `react-dom` 只读取 `createPortal`；要引入第四个，先在这里论证它在最低线 0.1.1-rc.2 的模块表里。
+只应出现 `react`、`react/jsx-runtime` 和 `react-dom`。CI 断言的正是这三个，外加从 `react-dom` 只读取 `createPortal`；要引入第四个，先在这里论证它在每个受支持版本的模块表里（最早的 0.0.1-rc.5 答 10 项，0.1.1-rc.2 答 7 项）。
 
 **`inject` 里只写每个目标组合都保证存在的服务。** 未激活的条目是**硬启动失败**（`dsh: 1 entry did not activate`），不是优雅跳过——把 `webServer` 写进 `inject` 会让这个插件无法与 `dsh-headless` 组合，而不只是在那里失效。可选服务走 `ctx.inject([...], scoped => …)` 嵌套作用域，或 `ctx.get('...')` 读。
 
@@ -31,4 +31,4 @@ npm run build && grep -o 'require("[^"]*")' lib/client.js | sort -u
 
 - Node `^22.19 || >=24`。harness 在奇数主版本上直接启动失败。
 - LibreOffice 只有 `document` 类需要（`docx`/`xlsx`/`pptx` 等），而且 0.1.6-alpha.2 起 harness 自带的 `officeToPdf` 服务会先接手 `doc`/`docx`/`xls`/`xlsx`/`ppt`/`pptx`。两者都没有时其余五类照常工作，文档卡片会说明缺什么。
-- **核 API 对着类型声明**：devDependencies 钉在 0.1.7-rc.2（`node_modules/@deepseek-ai/dsh-*/lib/types`），最低线 0.1.1-rc.2 用 `node scripts/sweep-trains.mjs --versions 0.1.1-rc.2` 在临时副本里复核；全部已发布版本同一个脚本不带参数跑。源码必须同时在两条线上编译：只用结构类型和特性探测，不静态值导入任何一条线上缺失的符号。类型声明与实测优先于任何文档，本文件包含在内。
+- **核 API 对着类型声明**：devDependencies 钉在 0.1.7-rc.2（`node_modules/@deepseek-ai/dsh-*/lib/types`），最低线 0.1.1-rc.2 用 `node scripts/sweep-trains.mjs --versions 0.1.1-rc.2` 在临时副本里复核；全部已发布版本（0.0.1-rc.1 起）同一个脚本不带参数跑。源码必须在每条线上编译：只用结构类型和特性探测，不静态值导入任何一条线上缺失的符号——0.1.0-rc.8 之前没有 `dsh-client-ui-renderer`，它只能仅类型导入。类型声明与实测优先于任何文档，本文件包含在内。

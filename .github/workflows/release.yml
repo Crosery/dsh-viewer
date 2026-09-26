@@ -13,9 +13,9 @@
 # Nothing is attached or published until `gate` passes: the tarball must
 # install, activate and be served on the pinned train, on the floor, on the
 # version the desktop app ships today (as the npm Web app and as the desktop
-# zip itself) and on the newest version of every tuple, and the tag's tree
-# must typecheck, test and be admitted on every published harness version the
-# sweep finds.
+# zip itself) and on every published harness version that installs at all,
+# and the tag's tree must typecheck, test and be admitted on every published
+# harness version the sweep finds.
 name: Release
 
 on:
@@ -106,7 +106,7 @@ jobs:
     uses: ./.github/workflows/harness-compat.yml
     with:
       cells: pinned,floor,desktop,sweep
-      smoke: heads
+      smoke: all
       desktop-bytes: true
       ref: ${{ inputs.tag || github.ref }}
       tarball-artifact: release-tarball

@@ -9,8 +9,11 @@
 #              boot (it refuses or silently skips a plugin that fails it), and
 #              the default one npm and pnpm apply
 #   smoke      scripts/smoke-boot.mjs: the packed plugin installs through the
-#              official `dsh plugin add`, activates, and is served by a real
-#              `dsh --profile web`
+#              official `dsh plugin add`, activates, is served by a real
+#              `dsh --profile web`, and runs: headless Google Chrome (shipped
+#              on ubuntu-latest and macos-latest; CHROME_PATH overrides) opens
+#              the app, which the shell mounts only once every entry is
+#              active, and no error on the page names the plugin
 #
 # v0.1.1 passed types and tests on 0.1.7 and still could not display anything
 # in the desktop app: admission refused it. That is why all four exist.
@@ -23,18 +26,23 @@
 #                       read from both update feeds       daily, gates releases
 #   latest|next|alpha   npm dist-tags                    daily
 #   sweep               every published version from     weekly and in the release
-#                       the lowest the peers admit;       gate; smoke on the floor,
-#                                                         each tuple's newest version
-#                                                         and every dist-tag
+#                       the lowest the peers admit —     gate, with the smoke on
+#                       0.0.1-rc.1, all of them          every installable version
 #   desktop-bytes       the same smoke on the desktop    daily, gates releases
 #                       zip itself (macOS job below)
 #
-# A train published without a package this plugin needs — or not published on
-# npm yet — is "incomplete": neutral, it neither opens nor closes an issue.
-# Only npm saying "not there" makes a train incomplete; a registry that did not
-# answer fails the cell, and `pinned` and `floor` are never incomplete. Peer
-# admission still runs on an incomplete train: it reads no package, and a
-# version the ranges refuse is drift whether or not npm has it yet.
+# A train nobody can install — not on npm yet, or its own @deepseek-ai/dsh
+# fails with E404/ETARGET (0.0.1-rc.1 and rc.2 depend on a package that was
+# never published) — is "incomplete": neutral, it neither opens nor closes an
+# issue. A harness package this plugin compiles against that the train never
+# published (dsh-client-ui-renderer before 0.1.0-rc.8) does not make it
+# incomplete: that package keeps this repository's pin, for types, and the
+# smoke decides whether the plugin runs there. Only npm saying "not there"
+# makes a train incomplete; a registry that did not answer fails the cell, and
+# `pinned` and `floor` are never incomplete. Peer admission still runs on an
+# incomplete train: it reads no package, and a version the ranges refuse is
+# drift whether or not npm has it yet. Types and tests run there too when every
+# package compiled against was published on it (`compiles`).
 #
 # Scheduled and dispatched runs report: a failing cell opens or comments on
 # the `upstream-drift` issue "Harness compatibility broken against @<cell>",
@@ -56,7 +64,7 @@ on:
         default: 'desktop,latest,next,alpha'
         type: string
       smoke:
-        description: 'Boot smoke for sweep rows'
+        description: 'Boot smoke for sweep rows (the weekly run uses all)'
         default: heads
         type: choice
         options: [heads, all, none]
@@ -122,7 +130,8 @@ jobs:
         timeout-minutes: 10
         env:
           CELLS: ${{ inputs.cells || (github.event.schedule == '43 6 * * 1' && 'sweep') || 'desktop,latest,next,alpha' }}
-          SMOKE: ${{ inputs.smoke || 'heads' }}
+          # The weekly sweep boots every installable version; see the header.
+          SMOKE: ${{ inputs.smoke || (github.event.schedule == '43 6 * * 1' && 'all') || 'heads' }}
         run: node scripts/harness-target.mjs --plan "$CELLS" --smoke "$SMOKE"
 
   against:
@@ -162,10 +171,13 @@ jobs:
         timeout-minutes: 10
 
       # Exit 3 is an incomplete train: the step passes, `incomplete` is set,
-      # and every later stage but admission stands down.
+      # and every later stage but admission stands down — types and tests
+      # still run when `compiles` says the train has every package they need.
+      # Besides the registry reads, this installs @deepseek-ai/dsh on its own
+      # in a dry run (legacy peer mode, seconds; npm may take minutes to fail).
       - name: Resolve ${{ matrix.cell }}
         id: target
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           set +e
           node scripts/harness-target.mjs "$CELL" --repoint
@@ -177,7 +189,7 @@ jobs:
       # install of @deepseek-ai/dsh 15 (scripts/harness-lib.mjs).
       - name: Install that train
         id: install
-        if: steps.target.outputs.incomplete != 'true'
+        if: steps.target.outputs.incomplete != 'true' || steps.target.outputs.compiles == 'true'
         timeout-minutes: 40
         env:
           TARGET: ${{ matrix.cell == 'pinned' && 'pinned' || steps.target.outputs.version }}
@@ -190,14 +202,14 @@ jobs:
 
       - name: Typecheck both halves
         id: types
-        if: steps.target.outputs.incomplete != 'true' && steps.install.outputs.incomplete != 'true'
+        if: (steps.target.outputs.incomplete != 'true' || steps.target.outputs.compiles == 'true') && steps.install.outcome == 'success' && steps.install.outputs.incomplete != 'true'
         timeout-minutes: 10
         continue-on-error: true
         run: npm run typecheck
 
       - name: Test
         id: tests
-        if: steps.target.outputs.incomplete != 'true' && steps.install.outputs.incomplete != 'true'
+        if: (steps.target.outputs.incomplete != 'true' || steps.target.outputs.compiles == 'true') && steps.install.outcome == 'success' && steps.install.outputs.incomplete != 'true'
         timeout-minutes: 10
         continue-on-error: true
         run: npm test
@@ -222,7 +234,8 @@ jobs:
           path: ${{ runner.temp }}/tarball
 
       # The harness install gets 2 minutes on the peer graph, then legacy peer
-      # mode; every other command 10 minutes; the boot 4 (scripts/smoke-boot.mjs).
+      # mode; every other command 10 minutes; the boot 4; Chrome 1 to start and
+      # load the page, then 2 for the app to mount (scripts/smoke-boot.mjs).
       - name: Boot smoke
         id: smoke
         if: matrix.smoke && steps.target.outputs.incomplete != 'true' && steps.install.outputs.incomplete != 'true'
@@ -274,8 +287,9 @@ jobs:
   # runtime package set inside app.asar and its bundled pnpm. mac-arm64 is the
   # only mac feed that exists, and macos-latest is arm64.
   #
-  # Not covered here or anywhere in CI: the Electron renderer, the preload
-  # bridge and native drag-and-drop. Those need the GUI.
+  # The browser stage runs the served app in headless Google Chrome, as the
+  # Web profile does. Not covered here or anywhere in CI: the Electron
+  # renderer, the preload bridge and native drag-and-drop. Those need the GUI.
   desktop-bytes:
     if: github.event_name == 'schedule' || inputs.desktop-bytes
     name: harness@desktop-bytes

@@ -5,12 +5,12 @@
 ## 发一个版本
 
 1. 改 `package.json` 的 `version`（以及 `package-lock.json`：`npm install --package-lock-only`）；若有格式变动，同步两份 README 的数字。
-2. harness 有变动时，跑 `node scripts/sweep-trains.mjs`，让 `scripts/check-invariants.mjs` 里的 `VERIFIED_TRAINS`、peer 范围和 [harness-compatibility.zh.md](harness-compatibility.zh.md) 说的是同一件事。三者不一致时 `npm run check` 会拒绝。
+2. harness 有变动时，跑 `node scripts/sweep-trains.mjs`，让 `scripts/check-invariants.mjs` 里的 `ADMITTED_TRAINS`、peer 范围和 [harness-compatibility.zh.md](harness-compatibility.zh.md) 说的是同一件事。三者不一致时 `npm run check` 会拒绝。
 3. CI 绿了之后合进 `main`。
 4. 打 tag 并推：
 
 ```sh
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.2.1 && git push origin v0.2.1
 ```
 
 剩下的交给 `.github/workflows/release.yml`，分三个任务，围绕**只打包一次的同一个 tarball**。
@@ -21,7 +21,7 @@ git tag v0.2.0 && git push origin v0.2.0
 
 - 在 `pinned` 版本、`0.1.1-rc.2` 最低线、以及桌面版当天分发的版本上跑四个阶段（types、tests、peer 接纳、启动冒烟）；
 - 对桌面版压缩包本身跑启动冒烟（`desktop-bytes`，macOS）；
-- 从 peer 范围接纳的最低版本起，扫描找到的每一个已发布 harness 版本上的 types、tests 和 peer 接纳，外加每个元组最新版本上的启动冒烟。上游发布不完整的版本是中性结果，不阻塞。
+- 从 peer 范围接纳的最低版本起，扫描找到的每一个已发布 harness 版本上的 types、tests 和 peer 接纳，外加其中每个能装上的版本上的启动冒烟。自己的 `@deepseek-ai/dsh` 装不上的版本（`0.0.1-rc.1`、`0.0.1-rc.2`）算上游发布不完整：中性结果，不阻塞，只判定它的 peer 接纳。
 
 一个推论：上次扫描之后才发布的新 harness 元组，会让门禁的 `admission` 阶段失败，直到范围接纳它为止。这是有意的。先验证它并放宽范围（见 [harness-compatibility.zh.md](harness-compatibility.zh.md)），或者等那件事做完再重跑发版。
 
