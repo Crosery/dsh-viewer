@@ -45,11 +45,11 @@ const SHEET = `
   display: block; padding: 0; border: 0; background: transparent; cursor: zoom-in;
   line-height: 0; max-width: 100%;
 }
-.dshview-image {
-  display: block; max-width: 100%; max-height: 420px; width: auto; height: auto;
-  border-radius: 6px; object-fit: contain;
-  /* A transparent PNG on a themed panel is unreadable without a backdrop; the
-     checkerboard is the conventional one and reads in both palettes. */
+/* A transparent PNG on a themed panel is unreadable without a backdrop; the
+   checkerboard is the conventional one and reads in both palettes. Shared by
+   the card thumbnail and the zoomed preview so the two cannot drift apart. */
+.dshview-image,
+.dshview-lightboxImage {
   background-color: var(--dsw-alias-bg-layer-2);
   background-image:
     linear-gradient(45deg, rgb(128 128 128 / .16) 25%, transparent 25%),
@@ -58,6 +58,10 @@ const SHEET = `
     linear-gradient(-45deg, transparent 75%, rgb(128 128 128 / .16) 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.dshview-image {
+  display: block; max-width: 100%; max-height: 420px; width: auto; height: auto;
+  border-radius: 6px; object-fit: contain;
 }
 .dshview-video { display: block; max-width: 100%; max-height: 420px; border-radius: 6px; background: #000; }
 .dshview-audio { display: block; width: 100%; }
@@ -78,14 +82,55 @@ const SHEET = `
   text-decoration: none;
 }
 .dshview-link:hover { text-decoration: underline; }
+.dshview-action {
+  align-self: flex-start; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px;
+  border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px;
+  background: transparent; color: var(--dsw-alias-brand-primary);
+}
+.dshview-action:hover { background: var(--dsw-alias-bg-layer-2); }
+.dshview-head:focus-visible,
+.dshview-imageButton:focus-visible,
+.dshview-action:focus-visible,
+.dshview-retry:focus-visible,
+.dshview-lightboxClose:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px;
+}
+
+/* A completed turn's displays, below its closing reply (see turn-tail.ts). */
+.dshview-tail { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 8px; min-width: 0; }
 
 .dshview-lightbox {
   position: fixed; inset: 0; z-index: 2000; display: flex;
   align-items: center; justify-content: center;
-  padding: 32px; background: rgb(0 0 0 / .72); cursor: zoom-out;
+  padding: 32px; background: rgb(0 0 0 / .72);
+  backdrop-filter: blur(4px);
+  cursor: zoom-out;
 }
 .dshview-lightboxImage {
-  max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px;
+  position: relative;
+  max-width: min(100%, 1600px); max-height: calc(100vh - 64px);
+  object-fit: contain; border-radius: 8px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+.dshview-lightboxClose {
+  position: fixed; top: 20px; right: 20px; z-index: 2001;
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin, rgba(255, 255, 255, 0.2));
+  background: var(--dsw-specific-input-major, rgba(0, 0, 0, 0.5));
+  color: var(--dsw-alias-label-primary, #fff);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+/* Hover inverts the button using the alias pair that exists for exactly this:
+   --dsw-alias-label-primary-foreground is by definition the readable colour on
+   --dsw-alias-label-primary, and the two swap between palettes. A literal black
+   here put a near-black glyph on black in the light theme. */
+.dshview-lightboxClose:hover {
+  background: var(--dsw-alias-label-primary, #fff);
+  color: var(--dsw-alias-label-primary-foreground, #0f1115);
+  transform: scale(1.05);
 }
 `
 

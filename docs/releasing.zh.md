@@ -4,17 +4,30 @@
 
 ## 发一个版本
 
-1. 改 `package.json` 的 `version`；若有格式变动，同步两份 README 的数字。
-2. CI 绿了之后合进 `main`。
-3. 打 tag 并推：
+1. 改 `package.json` 的 `version`（以及 `package-lock.json`：`npm install --package-lock-only`）；若有格式变动，同步两份 README 的数字。
+2. harness 有变动时，跑 `node scripts/sweep-trains.mjs`，让 `scripts/check-invariants.mjs` 里的 `VERIFIED_TRAINS`、peer 范围和 [harness-compatibility.zh.md](harness-compatibility.zh.md) 说的是同一件事。三者不一致时 `npm run check` 会拒绝。
+3. CI 绿了之后合进 `main`。
+4. 打 tag 并推：
 
 ```sh
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-剩下的交给 `.github/workflows/release.yml`：typecheck、测试、校验提交的 `lib/` 与重新构建一致，**tag 与 `package.json` 不一致直接拒绝**，然后打包并附加 tarball。只有配了 `NPM_TOKEN` 才会发 npm——发布 release 本身不依赖 npm 可达。
+剩下的交给 `.github/workflows/release.yml`，分三个任务，围绕**只打包一次的同一个 tarball**。
 
-构建产物是**提交进仓库**的，所以 tag 本身就能用官方 git 命令装。`npm run build` 写出 `src/` 当前的含义，`npm run check:dist` 负责拒绝 `lib/` 与之一致的提交，CI 两个都跑。
+**`pack`** **在 tag 与 `package.json` 不一致时直接拒绝**，然后跑 typecheck、测试和不变量；在 `npm run build` 之前先跑 `npm run check:dist`，并要求构建不改动 `lib/`；最后打包出 `dsh-viewer.tgz`，记下它的 sha256。
+
+**`gate`** 对 tag 自己的代码树调用 `harness-compat.yml`，其中每一次启动冒烟安装的都是 `pack` 打出的那个 tarball，而不是另行打包。以下全部通过之前，什么都不会附加：
+
+- 在 `pinned` 版本、`0.1.1-rc.2` 最低线、以及桌面版当天分发的版本上跑四个阶段（types、tests、peer 接纳、启动冒烟）；
+- 对桌面版压缩包本身跑启动冒烟（`desktop-bytes`，macOS）；
+- 从 peer 范围接纳的最低版本起，扫描找到的每一个已发布 harness 版本上的 types、tests 和 peer 接纳，外加每个元组最新版本上的启动冒烟。上游发布不完整的版本是中性结果，不阻塞。
+
+一个推论：上次扫描之后才发布的新 harness 元组，会让门禁的 `admission` 阶段失败，直到范围接纳它为止。这是有意的。先验证它并放宽范围（见 [harness-compatibility.zh.md](harness-compatibility.zh.md)），或者等那件事做完再重跑发版。
+
+**`release`** 先核对要附加的 tarball 的 sha256 与 `pack` 记下的一致，再附加它。新 release 的说明开头是一张表，列出门禁冒烟过的确切 harness 版本，并写明这个 sha256；只要有一次冒烟记录的是别的字节，`scripts/release-notes.mjs` 就让发版失败。发 npm 是单独的显式开关，发布的也是同一个 tarball，只有仓库变量 `NPM_PUBLISH` 为 `true` 时才会执行（见 [npm](#npm)）。发布 release 本身从不依赖 npm 可达。
+
+构建产物是**提交进仓库**的，所以 tag 本身就能用官方 git 命令装。`npm run build` 写出 `src/` 当前的含义，`npm run check:dist` 负责拒绝 `lib/` 与之**不一致**的提交。CI 先跑 `check:dist`，因为 `npm run build` 会原地重写 `lib/`，之后再比较，过期的提交也会显得一致；构建之后如果 `lib/` 有改动，CI 同样失败。
 
 ## 为什么资产名不带版本号
 
@@ -41,7 +54,7 @@ release tarball 带着同样的文件，另有两条理由：可锁定版本的�
 要发布需要两样东西：
 
 1. `NPM_TOKEN` 仓库 secret —— 一个**确实能发布到 `@crosery` scope** 的 token。光有 token 不够：第一次带着 token 尝试，结果就是 `404 Not Found - PUT https://registry.npmjs.org/@crosery%2fdsh-viewer`，这是 npm 对「无权发布该 scope」的报法。registry 上还从未有过任何 `@crosery/*` 包，所以 scope 得先存在，token 对应的账号也得能写它。
-2. `NPM_PUBLISH=true` 仓库**变量**（Settings → Secrets and variables → Actions → Variables）。没有它发布步骤直接跳过，npm 还没准备好时推 tag 也能保持绿色。
+2. `NPM_PUBLISH=true` 仓库**变量**（Settings → Secrets and variables → Actions → Variables）。没有它发布步骤直接跳过，npm 还没准备好时推 tag 也能保持绿色。设了它却没有 `NPM_TOKEN` 时，该步骤给出警告并跳过，不会在没有凭据的情况下尝试发布。
 
 要手工发布：
 

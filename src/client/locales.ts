@@ -11,8 +11,9 @@ export type ViewerKey =
   | 'state.running' | 'state.loading' | 'state.loadFailed' | 'state.retry'
   | 'state.unavailable' | 'state.unsupported'
   | 'badge.inContext' | 'badge.screenOnly'
-  | 'action.open' | 'action.openNew' | 'action.close' | 'action.expand' | 'action.collapse'
+  | 'action.open' | 'action.openNew' | 'action.openSidebar' | 'action.close' | 'action.expand' | 'action.collapse'
   | 'media.noVideo' | 'media.noAudio'
+  | 'tail.label'
 
 /** Simplified Chinese copy. */
 export const zh: Record<ViewerKey, string> = {
@@ -34,11 +35,13 @@ export const zh: Record<ViewerKey, string> = {
   'badge.screenOnly': '仅在页面显示',
   'action.open': '查看原图',
   'action.openNew': '在新标签打开',
+  'action.openSidebar': '在侧边栏预览',
   'action.close': '关闭',
   'action.expand': '展开',
   'action.collapse': '收起',
   'media.noVideo': '当前浏览器无法播放该视频格式',
   'media.noAudio': '当前浏览器无法播放该音频格式',
+  'tail.label': '本轮展示的文件',
 }
 
 /** English copy. */
@@ -61,9 +64,11 @@ export const en: Record<ViewerKey, string> = {
   'badge.screenOnly': 'shown to you only',
   'action.open': 'View full size',
   'action.openNew': 'Open in a new tab',
+  'action.openSidebar': 'Preview in sidebar',
   'action.close': 'Close',
   'action.expand': 'Expand',
   'action.collapse': 'Collapse',
   'media.noVideo': 'This browser cannot play that video format',
   'media.noAudio': 'This browser cannot play that audio format',
+  'tail.label': 'Files shown in this turn',
 }

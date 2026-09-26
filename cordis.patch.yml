@@ -6,19 +6,24 @@
 #
 # The row carries no config, so every setting keeps its schema default: the
 # `display_file` tool is registered, `read` on opaque media is redirected to it,
-# and an image-capable route also receives admissible rasters in context. Those
-# preferences live in the `crosery-viewer` settings namespace and are editable
-# in $DSH_HOME/settings.yaml without a restart. To pin a deployment default
-# instead, restate the WHOLE config block — a patch replaces a row's config
-# rather than merging into it:
+# and an image-capable route also receives admissible rasters in context.
 #
-#   - insert:
-#       - id: viewer
-#         name: '@crosery/dsh-viewer'
-#         config:
-#           tool: true
-#           redirectRead: false
-#           feedModel: false
+# Where the preferences are edited depends on the harness train. Up to 0.1.6
+# they live in the `crosery-viewer` settings namespace, editable in
+# $DSH_HOME/settings.yaml without a restart. From 0.1.7 settings.yaml is gone
+# and there is no settings form for this plugin: the Settings page builds forms
+# only from volatile fields, and these are not. Set them on the `viewer` entry
+# in the profile's own patch file, $DSH_HOME/profiles/<profile>/cordis.patch.yml
+# (the desktop app's profile is `desktop`), which applies after this layer. A
+# patch replaces the entry's config as a whole rather than merging into it, so
+# a field it leaves out keeps its default:
+#
+#   - id: viewer
+#     config:
+#       redirectRead: false
+#
+# 0.1.7's one-time import of settings.yaml moves each section into the entry of
+# the same id, so the old `crosery-viewer` section is NOT carried over.
 - insert:
     - id: viewer
       name: '@crosery/dsh-viewer'

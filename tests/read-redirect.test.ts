@@ -8,7 +8,9 @@
 
 import { deepEqual, equal, match, ok } from 'node:assert/strict'
 import { test } from 'node:test'
-import { isMisdirectedRead, mediaReadValue, readPathOf } from '../src/read-redirect.ts'
+import {
+  applyReadRedirect, displaySectionOrder, displaySectionText, isMisdirectedRead, mediaReadValue, readPathOf,
+} from '../src/read-redirect.ts'
 import { applySupersedeReadImage } from '../src/supersede-read-image.ts'
 import { ViewerSettingsSchema } from '../src/settings.ts'
 
@@ -70,11 +72,12 @@ test('the settings schema defaults to superseding read_image', () => {
 
 /** A ctx double capturing the two listeners the module registers. */
 function fakeCtx() {
-  const on: Record<string, ((payload?: never) => void)[]> = {}
-  const ctx = { on: (event: string, fn: (payload?: never) => void) => { (on[event] ??= []).push(fn) } } as never
+  const on: Record<string, ((payload?: never) => unknown)[]> = {}
+  const ctx = { on: (event: string, fn: (payload?: never) => unknown) => { (on[event] ??= []).push(fn) } } as never
   return {
     ctx,
-    created: (agent: unknown) => { for (const fn of on['agent/created'] ?? []) fn({ agent } as never) },
+    /** Publish one agent; returns what each listener returned. */
+    created: (agent: unknown) => (on['agent/created'] ?? []).map(fn => fn({ agent } as never)),
     toolsChanged: () => { for (const fn of on['tools/change'] ?? []) fn(undefined as never) },
   }
 }
@@ -138,4 +141,92 @@ test('the restriction stands down when the setting is off', () => {
   h.created(fakeAgent({ now: true }, denied))
   h.toolsChanged()
   deepEqual(denied, [])
+})
+
+test('the agent/created listener returns undefined, as the 0.1.6+ serial event requires', () => {
+  // 0.1.6 made `agent/created` a serial event awaited by agent creation, typed
+  // `undefined | Promise<undefined>` (issue #10). A listener returning anything
+  // else would be a type error there and a stray value at runtime.
+  const h = fakeCtx()
+  applySupersedeReadImage(h.ctx, () => true)
+  deepEqual(h.created(fakeAgent({ now: true }, [])), [undefined])
+  deepEqual(h.created(fakeAgent({ now: false }, [])), [undefined], 'also on the swallowed-failure path')
+})
+
+// --- the prompt section ---------------------------------------------------
+
+test('the section sits right after the read guidance on every train', () => {
+  // From 0.1.2 orders are allocated centrally: TOOL_READ is 1100.
+  equal(displaySectionOrder({ getSectionOrder: (name: string) => (name === 'TOOL_READ' ? 1100 : 0) }), 1101)
+  // 0.1.1 and earlier have no lookup, and the read guidance sat at 100.
+  equal(displaySectionOrder({}), 101)
+  equal(displaySectionOrder(undefined), 101)
+  // A lookup that does not know the name must not take the plugin down.
+  equal(displaySectionOrder({ getSectionOrder: () => { throw new Error('unknown section') } }), 101)
+  equal(displaySectionOrder({ getSectionOrder: () => Number.NaN }), 101)
+})
+
+test('the section is empty wherever display_file is not callable', () => {
+  equal(displaySectionText(() => false, true), '')
+  equal(displaySectionText(tool => tool === 'present', true), '', 'present alone is not a reason to talk about display_file')
+})
+
+test('the section promises a pointer back from read only while the redirect is on', () => {
+  const on = displaySectionText(tool => tool === 'display_file', true)
+  match(on, /returns a pointer back to display_file/)
+  const off = displaySectionText(tool => tool === 'display_file', false)
+  ok(!/pointer/.test(off), 'with redirectRead off, read on a binary file is not answered with a pointer')
+  match(off, /only decodes UTF-8 text/)
+})
+
+test('the section defers deliverables to present only where present exists', () => {
+  const alone = displaySectionText(tool => tool === 'display_file', true)
+  match(alone, /display_file/)
+  ok(!/present/.test(alone), 'no mention of a tool the model does not have')
+
+  const both = displaySectionText(tool => tool === 'display_file' || tool === 'present', true)
+  match(both, /inline preview and playback/)
+  match(both, /present tool/)
+  match(both, /markdown image/)
+  match(both, /never display, embed, and present the same file/)
+})
+
+test('the registered section reads tool visibility per assembly scope', () => {
+  const sections: { name: string; order: number; text: unknown }[] = []
+  const visible = new Map<unknown, Set<string>>([
+    ['agent-with', new Set(['display_file', 'present'])],
+    ['agent-without', new Set()],
+  ])
+  const ctx = {
+    systemPrompt: {
+      getSectionOrder: () => 1100,
+      section: (section: { name: string; order: number; text: unknown }) => { sections.push(section); return () => {} },
+    },
+    tools: { get: (name: string, scope?: unknown) => (visible.get(scope)?.has(name) ? { name } : undefined) },
+    on: () => {},
+  }
+  let redirecting = true
+  applyReadRedirect(ctx as never, () => redirecting)
+  equal(sections.length, 1)
+  const section = sections[0]!
+  equal(section.name, 'tool:display-file')
+  equal(section.order, 1101)
+  equal(typeof section.text, 'function', 'text is evaluated per assembly, not frozen at registration')
+  const text = section.text as (context: { scope?: unknown }) => string
+  match(text({ scope: 'agent-with' }), /present tool/)
+  equal(text({ scope: 'agent-without' }), '', 'a restricted-away or switched-off tool is not advertised')
+  match(text({ scope: 'agent-with' }), /pointer back/)
+  redirecting = false
+  ok(!/pointer back/.test(text({ scope: 'agent-with' })), 'the redirectRead setting is read live, per assembly')
+})
+
+// --- settings schema ------------------------------------------------------
+
+test('every settings field carries a description', () => {
+  const dict = (ViewerSettingsSchema as unknown as { dict: Record<string, { meta?: { description?: unknown } }> }).dict
+  for (const field of ['tool', 'redirectRead', 'feedModel', 'supersedeReadImage']) {
+    const description = dict[field]?.meta?.description
+    equal(typeof description, 'string', field)
+    ok((description as string).length > 20, field)
+  }
 })

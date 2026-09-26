@@ -3,22 +3,32 @@
  *
  * Registered for both `display_file` and the shipped `read_image`, so an image
  * the model pulled in through the shipped tool is shown as a picture rather
- * than as a bare text row.
+ * than as a bare text row on the trains whose `read_image` has no view of its
+ * own (see `client/index.ts` for how the two coexist where it does).
  *
  * Two byte sources, in priority order. A signed asset URL streams straight from
  * the Host and is the only one that can carry video, audio, PDF or HTML — and
  * the only one that supports range requests, which is what makes a `<video>`
  * seekable. A durable attachment is the fallback: it is images-only, but it
  * works when the filesystem backend exposes no local path, and it is the only
- * source a shipped `read_image` result has at all.
+ * source a shipped `read_image` result has at all. From 0.1.7 the chat hands
+ * every tool view its own session-authorized image loader, and the card uses
+ * it; on older trains the plugin's own attachment reader stands in.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import { READ_IMAGE_TOOL, classifyPath, formatBytes, type DisplayValue, type ViewerKind } from '../contract.ts'
+import {
+  READ_IMAGE_TOOL, classifyPath, formatBytes,
+  type DisplayValue, type ViewerKind,
+} from '../contract.ts'
 import { cardModel, type CardState } from './card-model.ts'
+import { isDesktopShell, mediaSourceFor } from './host.ts'
 import type { ViewerKey } from './locales.ts'
+import { imageLoaderFor, type OwnerImageLoader, type ViewerSources } from './sources.ts'
+
 
 /** Class-name prefix; see `styles.ts` for the injected sheet. */
 const CSS = 'dshview'
@@ -27,6 +37,7 @@ const CSS = 'dshview'
 export interface ViewerCardInjected {
   /**
    * Resolve one durable attachment into a browser URL scoped to this session.
+   * The fallback for trains whose tool-view owner carries no `loadImage`.
    * @param attachmentId - the opaque durable id.
    * @returns a URL valid until the plugin unloads.
    */
@@ -39,6 +50,15 @@ export interface ViewerCardOwner {
   toolName: string
   /** Frozen running call or settled result node. */
   block: Parameters<typeof cardModel>[0]
+  /**
+   * Open a path through the Host: the operating system's default application
+   * up to 0.1.5, the right-Sidebar preview from 0.1.7. Every supported train
+   * supplies it; optional only so a card rendered outside a tool row (the turn
+   * tail) or by a test can omit it.
+   */
+  openFile?: ((path: string) => unknown) | undefined
+  /** 0.1.7+: the chat's session-authorized loader for durable images. */
+  loadImage?: OwnerImageLoader | undefined
 }
 
 /** Full card props: owner share, injected face, and the locale seat. */
@@ -92,9 +112,11 @@ function KindIcon({ kind }: { kind: ViewerKind }) {
  * A signed asset URL is usable immediately; a durable attachment has to be
  * fetched, so the hook carries the loading and failure states that fetch needs.
  * `attempt` re-arms the effect, which puts a retry through the same liveness
- * guard and the same reset as the first load.
+ * guard and the same reset as the first load. The loader is read through a ref:
+ * an owner that hands a fresh function identity on every render must not
+ * restart the fetch on every render.
  */
-function useMediaSource(value: DisplayValue, load: ViewerCardInjected['loadAttachment']): {
+function useMediaSource(value: DisplayValue, load: ViewerSources['loadImage']): {
   src: string | undefined
   failed: boolean
   pending: boolean
@@ -104,11 +126,14 @@ function useMediaSource(value: DisplayValue, load: ViewerCardInjected['loadAttac
   const [failed, setFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const retry = useCallback(() => { setAttempt(a => a + 1) }, [])
-  const attachmentId = value.image?.attachmentId
+  const loader = useRef(load)
+  loader.current = load
+  const image = value.image
+  const attachmentId = image?.attachmentId
   const direct = value.assetUrl
 
   useEffect(() => {
-    if (direct !== undefined || attachmentId === undefined) {
+    if (direct !== undefined || image === undefined) {
       setResolved(undefined)
       setFailed(false)
       return
@@ -116,36 +141,149 @@ function useMediaSource(value: DisplayValue, load: ViewerCardInjected['loadAttac
     let live = true
     setResolved(undefined)
     setFailed(false)
-    void load(attachmentId).then(
+    void loader.current(image).then(
       (url) => { if (live) setResolved(url) },
       () => { if (live) setFailed(true) },
     )
     return () => { live = false }
-  }, [direct, attachmentId, load, attempt])
+    // `image` is re-derived per render from immutable metadata; its id is the identity.
+  }, [direct, attachmentId, attempt])
 
   if (direct !== undefined) return { src: direct, failed: false, pending: false, retry }
   if (attachmentId === undefined) return { src: undefined, failed: false, pending: false, retry }
   return { src: resolved, failed, pending: resolved === undefined && !failed, retry }
 }
 
-/** Full-viewport preview of one image; click anywhere or press Escape to close. */
-function Lightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+/**
+ * Selector for the dialog's tab stops. Mirrors what a browser makes focusable,
+ * minus the disabled controls, so Tab containment keeps working if the preview
+ * ever grows a second control.
+ */
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Full-viewport preview of one image; click the backdrop, the close button, or
+ * press Escape to close.
+ *
+ * Portalled to `body` because a card inside a transformed or `contain`ed scroll
+ * container would otherwise clip a `position: fixed` overlay to that container.
+ * The theme tokens are defined on `body`, so the portal still inherits them.
+ */
+function Lightbox({ src, alt, onClose, closeLabel }: {
+  src: string
+  alt: string
+  onClose: () => void
+  closeLabel: string
+}) {
+  const panel = useRef<HTMLDivElement>(null)
+  const close = useRef<HTMLButtonElement>(null)
+  // Where focus was before the dialog opened. The overlay is portalled to
+  // `body`, so the card underneath is not an ancestor the browser could
+  // restore to on its own — the return trip has to be made explicitly.
+  const origin = useRef<HTMLElement | null>(null)
+
   useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('keydown', onKey) }
+    origin.current = document.activeElement as HTMLElement | null
+    close.current?.focus()
+    return () => {
+      const back = origin.current
+      if (back?.isConnected) back.focus()
+    }
+  }, [])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        // Captured on `window` and stopped there: Escape also closes the
+        // harness's own panels and cancels a running turn, and one key press
+        // must close only the topmost thing on screen.
+        event.preventDefault()
+        event.stopPropagation()
+        onClose()
+        return
+      }
+      if (event.key !== 'Tab') return
+      // `aria-modal` alone does not hold Tab: the rest of the page is still in
+      // the document behind the overlay, so focus would walk out of sight.
+      const items = panel.current?.querySelectorAll<HTMLElement>(FOCUSABLE)
+      if (items === undefined || items.length === 0) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (first === undefined || last === undefined) return
+      const active = document.activeElement
+      const outside = active === null || panel.current?.contains(active) !== true
+      const atEdge = event.shiftKey ? active === first : active === last
+      if (!outside && !atEdge) return
+      event.preventDefault()
+      if (event.shiftKey) last.focus()
+      else first.focus()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => { window.removeEventListener('keydown', onKey, true) }
   }, [onClose])
-  return (
-    // eslint-disable-next-line -- the overlay is a click target by design; Escape covers the keyboard path.
-    <div className={`${CSS}-lightbox`} role="presentation" onClick={onClose}>
-      <img className={`${CSS}-lightboxImage`} src={src} alt={alt} />
-    </div>
+
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
+    <div ref={panel} className={`${CSS}-lightbox`} role="dialog" aria-modal="true" aria-label={alt} onClick={onClose}>
+      <img
+        className={`${CSS}-lightboxImage`}
+        src={src}
+        alt={alt}
+        onClick={(event) => event.stopPropagation()}
+      />
+      <button
+        ref={close}
+        type="button"
+        className={`${CSS}-lightboxClose`}
+        aria-label={closeLabel}
+        title={closeLabel}
+        onClick={(event) => {
+          // The backdrop would close too; one close per click.
+          event.stopPropagation()
+          onClose()
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z" />
+        </svg>
+      </button>
+    </div>,
+    document.body,
   )
 }
 
+/**
+ * The way out of the card for a file the card cannot fully show.
+ *
+ * On plain web that is a real link: the asset route is same-origin, so a new
+ * tab renders the file with the browser's own viewer. The desktop window denies
+ * every `target=_blank` to an app URL without a word (only http(s) leaves the
+ * window), so there the Host's opener is used instead — the right-Sidebar
+ * preview on 0.1.7, which renders PDFs with PDF.js and converts Office files
+ * itself. With neither available nothing is offered rather than a control that
+ * silently does nothing.
+ */
+function OpenAction({ src, path, openFile, t }: {
+  src: string
+  path: string
+  openFile: ViewerSources['openFile']
+  t: TranslateNS<'tool.viewer'>
+}) {
+  if (isDesktopShell()) {
+    if (openFile === undefined) return null
+    return (
+      <button type="button" className={`${CSS}-action`} onClick={() => { openFile(path) }}>
+        {t('action.openSidebar')}
+      </button>
+    )
+  }
+  return <a className={`${CSS}-link`} href={src} target="_blank" rel="noreferrer">{t('action.openNew')}</a>
+}
+
 /** The element that plays one file, or the reason there is none. */
-function Viewer({ value, injected, t }: { value: DisplayValue; injected: ViewerCardInjected; t: TranslateNS<'tool.viewer'> }) {
-  const { src, failed, pending, retry } = useMediaSource(value, injected.loadAttachment)
+export function Viewer({ value, sources, t }: { value: DisplayValue; sources: ViewerSources; t: TranslateNS<'tool.viewer'> }) {
+  const { src, failed, pending, retry } = useMediaSource(value, sources.loadImage)
   const [zoomed, setZoomed] = useState(false)
   const closeZoom = useCallback(() => { setZoomed(false) }, [])
   const label = value.image?.name ?? value.path
@@ -165,46 +303,60 @@ function Viewer({ value, injected, t }: { value: DisplayValue; injected: ViewerC
     case 'image':
       return (
         <>
-          <button type="button" className={`${CSS}-imageButton`} title={t('action.open')} onClick={() => { setZoomed(true) }}>
+          <button type="button" className={`${CSS}-imageButton`} title={t('action.open')} aria-label={t('action.open')} onClick={() => { setZoomed(true) }}>
             <img className={`${CSS}-image`} src={src} alt={label} loading="lazy" />
           </button>
-          {zoomed && <Lightbox src={src} alt={label} onClose={closeZoom} />}
+          {zoomed && <Lightbox src={src} alt={label} onClose={closeZoom} closeLabel={t('action.close')} />}
         </>
       )
     case 'video':
       // `preload="metadata"` so the scrub bar and duration appear without
       // pulling a whole film down the moment the card scrolls into view.
-      return <video className={`${CSS}-video`} src={src} controls preload="metadata">{t('media.noVideo')}</video>
+      // `mediaSourceFor` keeps the desktop's first load seekable; see host.ts.
+      return <video className={`${CSS}-video`} src={mediaSourceFor(src)} controls preload="metadata">{t('media.noVideo')}</video>
     case 'audio':
-      return <audio className={`${CSS}-audio`} src={src} controls preload="metadata">{t('media.noAudio')}</audio>
+      return <audio className={`${CSS}-audio`} src={mediaSourceFor(src)} controls preload="metadata">{t('media.noAudio')}</audio>
     case 'pdf':
     case 'document':
+      // The desktop window renders a PDF frame too: its webPreferences leave
+      // Chromium's PDF viewer enabled (verified on 0.1.7-rc.2 —
+      // `navigator.pdfViewerEnabled` is true there), so only the way OUT of the
+      // card differs between web and desktop, not the card itself.
+      return (
+        <>
+          {/*
+            No sandbox on a PDF, and that is not an oversight. `sandbox` without
+            `allow-same-origin` gives the frame an opaque origin, and Chrome's
+            built-in PDF viewer refuses to run there — the frame renders "This
+            page has been blocked by Chrome" instead of the document. A PDF
+            needs no sandbox anyway: it is served as `application/pdf` under
+            `nosniff`, so the browser hands it to its own isolated viewer rather
+            than executing anything in this origin.
+          */}
+          <iframe className={`${CSS}-frame`} src={src} title={label} />
+          <OpenAction src={src} path={value.path} openFile={sources.openFile} t={t} />
+        </>
+      )
     case 'html':
       return (
         <>
           {/*
-            The sandbox is applied to HTML only, and its absence on PDF is not
-            an oversight. `sandbox` without `allow-same-origin` gives the frame
-            an opaque origin, and Chrome's built-in PDF viewer refuses to run
-            there — the frame renders "This page has been blocked by Chrome"
-            instead of the document. A PDF needs no sandbox anyway: it is served
-            as `application/pdf` under `nosniff`, so the browser hands it to its
-            own isolated viewer rather than executing anything in this origin.
-            Local HTML is the opposite case — it is arbitrary script the agent
-            may have just written — so it keeps the opaque origin, backed by the
-            `sandbox` CSP the Host sends with the response.
+            Local HTML is arbitrary script the agent may have just written, so
+            it keeps an opaque origin, backed by the `sandbox` CSP the Host
+            sends with the response. A frame needs no plugin, so this works in
+            the desktop window too.
           */}
           <iframe
             className={`${CSS}-frame`}
             src={src}
             title={label}
-            {...value.kind === 'html' ? { sandbox: 'allow-scripts allow-forms allow-popups' } : {}}
+            sandbox="allow-scripts allow-forms allow-popups"
           />
-          <a className={`${CSS}-link`} href={src} target="_blank" rel="noreferrer">{t('action.openNew')}</a>
+          <OpenAction src={src} path={value.path} openFile={sources.openFile} t={t} />
         </>
       )
     default:
-      return <a className={`${CSS}-link`} href={src} target="_blank" rel="noreferrer">{t('action.openNew')}</a>
+      return <OpenAction src={src} path={value.path} openFile={sources.openFile} t={t} />
   }
 }
 
@@ -244,42 +396,24 @@ function detailOf(value: DisplayValue): string {
 }
 
 /**
- * One `display_file` (or `read_image`) call, as a row plus its player.
- * @param props - the toolview owner share, the injected loader, and `t`.
+ * One settled, displayable file: the header and its player.
+ *
+ * Shared by the tool row and by the turn tail, so a file shown after a turn
+ * completes looks exactly like the one shown while it ran.
+ * @param props - the display, how to reach its bytes, the tool it came from, and `t`.
  * @returns the card.
  */
-export function ViewerCard({ toolName, block, t, ...injected }: ViewerCardProps) {
-  const state: CardState = cardModel(block, toolName)
+export function DisplayedFile({ value, toolName, sources, t }: {
+  value: DisplayValue
+  toolName: string
+  sources: ViewerSources
+  t: TranslateNS<'tool.viewer'>
+}) {
   // Every kind opens expanded. A viewer whose whole purpose is showing the file
   // must not hide it behind a disclosure the reader has to find — collapsing is
   // available on the header for a reader who wants the room back.
   const [open, setOpen] = useState(true)
   const toggle = useCallback(() => { setOpen(previous => !previous) }, [])
-
-  if (state.phase === 'running') {
-    return (
-      <div className={`${CSS}-card`}>
-        <Head kind={classifyKind(state.path)} label={headLabel(toolName, classifyKind(state.path))} path={state.path ?? ''} detail={t('state.running')} expanded={false} t={t} />
-      </div>
-    )
-  }
-  if (state.phase === 'failed') {
-    return (
-      <div className={`${CSS}-card`}>
-        <Head kind={classifyKind(state.path)} label={headLabel(toolName, classifyKind(state.path))} path={state.path ?? ''} detail="" expanded={open} onToggle={toggle} t={t} />
-        {open && <div className={`${CSS}-body`}><div className={`${CSS}-note ${CSS}-error`}>{state.message}</div></div>}
-      </div>
-    )
-  }
-  if (state.phase === 'bare') {
-    return (
-      <div className={`${CSS}-card`}>
-        <Head kind={classifyKind(state.path)} label={headLabel(toolName, classifyKind(state.path))} path={state.path ?? ''} detail={state.message} expanded={false} t={t} />
-      </div>
-    )
-  }
-
-  const { value } = state
   return (
     <div className={`${CSS}-card`}>
       <Head
@@ -292,7 +426,56 @@ export function ViewerCard({ toolName, block, t, ...injected }: ViewerCardProps)
         onToggle={toggle}
         t={t}
       />
-      {open && <div className={`${CSS}-body`}><Viewer value={value} injected={injected} t={t} /></div>}
+      {open && <div className={`${CSS}-body`}><Viewer value={value} sources={sources} t={t} /></div>}
+    </div>
+  )
+}
+
+/**
+ * One `display_file` (or `read_image`) call, as a row plus its player.
+ * @param props - the toolview owner share, the injected loader, and `t`.
+ * @returns the card.
+ */
+export function ViewerCard({ toolName, block, t, openFile, loadImage, loadAttachment }: ViewerCardProps) {
+  const state: CardState = cardModel(block, toolName)
+
+  if (state.phase === 'ready') {
+    const sources: ViewerSources = { loadImage: imageLoaderFor(loadImage, loadAttachment), openFile }
+    return <DisplayedFile value={state.value} toolName={toolName} sources={sources} t={t} />
+  }
+  return <UnsettledCard state={state} toolName={toolName} t={t} />
+}
+
+/** A card with nothing to play yet, or nothing to play at all. */
+function UnsettledCard({ state, toolName, t }: {
+  state: Exclude<CardState, { phase: 'ready' }>
+  toolName: string
+  t: TranslateNS<'tool.viewer'>
+}) {
+  const [open, setOpen] = useState(true)
+  const toggle = useCallback(() => { setOpen(previous => !previous) }, [])
+  const kind = classifyKind(state.path)
+  const label = headLabel(toolName, kind)
+  const path = state.path ?? ''
+
+  if (state.phase === 'running') {
+    return (
+      <div className={`${CSS}-card`}>
+        <Head kind={kind} label={label} path={path} detail={t('state.running')} expanded={false} t={t} />
+      </div>
+    )
+  }
+  if (state.phase === 'failed') {
+    return (
+      <div className={`${CSS}-card`}>
+        <Head kind={kind} label={label} path={path} detail="" expanded={open} onToggle={toggle} t={t} />
+        {open && <div className={`${CSS}-body`}><div className={`${CSS}-note ${CSS}-error`}>{state.message}</div></div>}
+      </div>
+    )
+  }
+  return (
+    <div className={`${CSS}-card`}>
+      <Head kind={kind} label={label} path={path} detail={state.message} expanded={false} t={t} />
     </div>
   )
 }

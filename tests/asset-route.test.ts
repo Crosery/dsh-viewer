@@ -9,7 +9,7 @@
 
 import { deepEqual, equal, ok } from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, stat, utimes, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -152,4 +152,35 @@ test('the route answers 503 rather than serving anything while the key is still 
   const response = await fetch(`http://127.0.0.1:${port}${assetUrlFor(KEY, mediaPath)}`)
   equal(response.status, 503)
   bare.close()
+})
+
+test('serving a converted artifact marks it used for eviction; serving a user file changes nothing', async () => {
+  const cacheDir = await mkdtemp(join(tmpdir(), 'dsh-viewer-route-cache-'))
+  const artifact = join(cacheDir, `${'ab'.repeat(16)}.pdf`)
+  const photo = join(cacheDir, 'photo.png')
+  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+  for (const path of [artifact, photo]) {
+    await writeFile(path, '%PDF-1.7')
+    await utimes(path, twoDaysAgo, twoDaysAgo)
+  }
+  // Compare against what the filesystem stored, not the Date that set it:
+  // ext4 reads a millisecond time back as e.g. …526.999.
+  const before = { artifact: (await stat(artifact)).mtimeMs, photo: (await stat(photo)).mtimeMs }
+  const handler = assetHandler(() => KEY, { cacheDir })
+  const bare = createServer((req, res) => { void handler(req, res) })
+  await new Promise<void>((resolve) => { bare.listen(0, '127.0.0.1', resolve) })
+  const address = bare.address()
+  const port = typeof address === 'object' && address !== null ? address.port : 0
+  for (const path of [artifact, photo]) {
+    const response = await fetch(`http://127.0.0.1:${port}${assetUrlFor(KEY, path)}`)
+    equal(response.status, 200)
+    await response.arrayBuffer()
+  }
+  bare.close()
+  // The stamp is written beside the response, not before it.
+  for (let tries = 0; tries < 50 && (await stat(artifact)).mtimeMs === before.artifact; tries++) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  ok((await stat(artifact)).mtimeMs > before.artifact, 'the artifact is stamped as used')
+  equal((await stat(photo)).mtimeMs, before.photo, 'the user file is untouched')
 })

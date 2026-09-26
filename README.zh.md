@@ -55,13 +55,19 @@ dsh plugin --profile web add github:crosery/dsh-viewer
 dsh plugin --profile web add https://github.com/Crosery/dsh-viewer/releases/latest/download/dsh-viewer.tgz
 ```
 
-Office 渲染额外需要 LibreOffice（`PATH` 上的 `soffice`，或 macOS 的应用包）：
+**桌面版**：打开**插件 → 添加插件**，粘贴上面那条 release 压缩包地址。`dsh` 命令行拒绝操作桌面 profile（`profile "desktop" is managed exclusively by the Electron application`），所以这是唯一的入口。在那里升级已装插件需要重启应用。
+
+**harness 0.1.7（包括桌面版）需要 0.2.0 或更新的版本。** 从 0.1.7 起 harness 会自己检查插件的 peer 范围，而 v0.1.1 的范围止于 0.1.6 以下：安装会被拒绝，已经装好的副本在启动时被悄无声息地跳过——对话照常，但什么文件都不会显示。
+
+Office 渲染需要一个转换器。从 harness 0.1.6-alpha.2 起（包括桌面版），harness 自带的内置转换器就能处理 `doc` `docx` `xls` `xlsx` `ppt` `pptx`，什么都不用装。`rtf` 和三种 OpenDocument 格式，以及更早版本上的所有文档格式，仍需要 LibreOffice（`PATH` 上的 `soffice`，或 macOS 的应用包）：
 
 ```sh
 brew install --cask libreoffice
 ```
 
-没装也不影响其余格式，文档卡片会明确说明缺什么。
+没有转换器也不影响其余格式，文档卡片会明确说明缺什么。
+
+转好的 PDF 缓存在 `$DSH_HOME/.dsh-viewer-cache/`，所有 profile 共用，所以一份文档每改一次只转一次，而不是每显示一次转一次。缓存有上限：30 天没用过的产物会被删掉，超过 256 份或 512 MiB 时先删最久没用的。卡片加载它的 PDF 也算一次使用。
 
 ---
 
@@ -72,7 +78,7 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 - 路由模型不声明 `image` 输入时，它直接拒绝；
 - 只认 PNG/JPEG/WebP/GIF；
 - 视频、音频、PDF、网页完全没有入口；
-- 而且**内置 Web 客户端不给它画卡片**——`read_image` 落在通用工具行上，人在屏幕前看到的只有一行 `Read image /path/to/a.png`。
+- 而且在 harness 0.1.2 及以前，**内置 Web 客户端不给它画卡片**——`read_image` 落在通用工具行上，人在屏幕前看到的只有一行 `Read image /path/to/a.png`。（0.1.3 起 harness 自带了 `read_image` 视图，本插件在这个 key 上的卡片会主动让位。）
 
 这个插件反过来：它存在的目的是把文件放到**用户屏幕上**。所以纯文本路由不是拒绝理由，非图片媒体也不是。
 
@@ -84,7 +90,7 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 | 视频 / 音频 | 无 | MP4/WebM/MOV/OGV，MP3/WAV/FLAC/OGG/M4A/Opus |
 | PDF / 网页 | 无 | 内嵌 iframe |
 | Office 全家桶 | 无 | docx/doc/rtf/odt、xlsx/xls/ods、pptx/ppt/odp（Host 转 PDF 后内嵌） |
-| Web 卡片 | 无（通用行） | 有（本插件同时接管 `read_image` 的卡片） |
+| Web 卡片 | 0.1.2 及以前无（通用行）；0.1.3 起有 | 有（在 harness 没有 `read_image` 视图的版本上，本插件也给它画卡片） |
 
 ## 两条字节通道
 
@@ -94,13 +100,15 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 
 **持久化附件**——`ctx.attachments` 那条老通道。只有图片，但它在两种情况下不可替代：文件系统后端不暴露本地路径（远程 workspace）时，以及渲染出厂 `read_image` 结果时（那份结果只有附件，没有 URL）。
 
-两条通道不是冗余：视觉路由上的 PNG 仍然要走附件，因为那是它进入模型上下文的唯一方式。
+两条通道不是冗余：视觉路由上的 PNG 仍然要走附件，因为那是它进入模型上下文的唯一方式。0.1.7 起持久化图片改由对话自带的加载器读取，同一会话里每张图只读一次。
+
+桌面版里，视频和音频从 Host 的回环地址（`__DSH_TRANSPORT__.streamBaseUrl`）加载，而不是窗口的 `dsh-app:` 源：应用的协议转发会去掉 `Content-Length`，Chromium 于是把媒体 URL 的第一次加载当成不可拖动的流。资源路由按签名授权，所以除了源以外什么都不变。
 
 ## 资源路由的安全边界
 
 路由**从不接受浏览器给的路径**。工具执行时用一个每 harness 一份的密钥对已解析的绝对路径做 HMAC，路径和 MAC 一起放进 URL；路由只在 MAC 验过之后才认那个路径。
 
-- 密钥：32 字节随机数，`$DSH_HOME/.dsh-viewer-asset-key`，0600，首次使用时生成。**自包含的签名而不是进程内 token 表**，是因为卡片必须活过重启：从会话日志重放出来的卡片手上只有几个月前铸的那个 URL。
+- 密钥：32 字节随机数，`$DSH_HOME/.dsh-viewer-asset-key`，0600，首次使用时生成。**自包含的签名而不是进程内 token 表**，是因为卡片必须活过重启：从会话日志重放出来的卡片手上只有几个月前铸的那个 URL。唯一的例外是转换过的文档：它的 URL 指向缓存里的 PDF，那份 PDF 被淘汰之后，卡片里的 frame 会得到 `404`，直到 `display_file` 重新转换这个文件。
 - 篡改路径、换密钥、去掉签名、改用 padded base64 拼写——全部 404，且「没签名」和「签了但文件不存在」返回同一个状态码，探测者无法从状态码学到文件是否存在。
 - `text/html` 和 `image/svg+xml` 带 CSP 响应头下发（前者 `sandbox`，后者 `default-src 'none'`）。同源直接导航到资源 URL 时，这两种文档否则会以应用的 origin 执行脚本。所有响应带 `nosniff`。
 - 字节走 `createReadStream(processPath)` 而不是 `ctx.fs.readBytes`——后者会把整个文件读进内存，而两小时的视频正是这插件存在的理由。
@@ -113,7 +121,9 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 - **每次调用私有 profile**（`-env:UserInstallation=file://…`）。LibreOffice 多个实例共用用户 profile 目录会互相破坏；更要命的是**桌面上已经开着 LibreOffice 时，headless 调用会立刻退出且不产出任何文件**——这是「明明成功了却没有 PDF」最常见的原因。
 - **串行队列**。私有 profile 解决了互相破坏，但没解决成本：几个 LibreOffice 冷启动同时跑会拖垮笔记本。重复由缓存吸收。
 - **缓存键含 LibreOffice 版本** + 源文件 path/mtime/size。同样的字节经过新版 LibreOffice 是不同的产物，键里不带版本，升级后就会命中陈旧渲染而且看不出来。不对文件内容做摘要：几百 MB 的演示文稿不该为了「查一下转过没有」被读两遍。
-- 产物写在 `$DSH_HOME/.dsh-viewer-cache/`，**先写临时目录再 rename 就位**——读者要么看不到产物，要么看到完整的，不会拿到半个 PDF 喂给阅读器。
+- **harness 内置转换器的缓存键是它的配置**（字体、回退字体、图片分辨率等）加源文件的 path/版本/大小，而不是它的 `generation`：上游每个转换器实例都用 `randomUUID()` 生成 `generation`，拿它做键等于每次重启都是冷缓存，缓存永远命中不了、只会越长越大。配置变了就是新产物，重启不是。它看不到的是配置不变、随 harness 升级换了引擎的情况；这时的产物仍是同一份字节的忠实渲染，会像其他产物一样按时淘汰。
+- 产物写在 `$DSH_HOME/.dsh-viewer-cache/`，**先以临时名写在缓存目录里，再 rename 就位**——读者要么看不到产物，要么看到完整的，不会拿到半个 PDF 喂给阅读器。临时文件必须和产物在同一目录：`rename` 不能跨文件系统，LibreOffice 的输出目录在系统临时目录下，而 Linux 上 `/tmp` 常是单独挂载的 tmpfs，直接从那里 rename 会报 `EXDEV`。所以 LibreOffice 的 PDF 是先复制进缓存目录再 rename。
+- **缓存有界，按最近使用淘汰**：30 天没用、超过 256 份或超过 512 MiB 时，从最久没用的开始删；`display_file` 命中和资源路由下发 PDF 都算使用。插件启动时和每次写入后各在后台修剪一次，只动缓存目录里本插件写出的文件名的普通文件——别的文件、符号链接、子目录一概不碰。
 
 实测冷启动 2.6–3.6 秒，之后命中缓存。
 
@@ -142,11 +152,15 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 
 所以纠正放在 **`tools/execute`（around-dispatch）**，并且**不调用 `next()`**：注定失败的读取根本不发生，一次文件 I/O 都没有。返回的自造结果会经过 `normalizeDispatchResult`，对成功结果它会**用本插件给的 value 重跑该工具自己的 `output.render` 和 `output.presentationMeta`**——于是持久化的 read 元数据也被替换掉，出厂 read 卡片照常渲染，只不过内容是一行指向 `display_file` 的说明，而且是一次**普通的成功读取**。
 
-配套还有一段系统提示词（order 101，紧跟出厂 `tool:read` 的 100）。`.html` **不在**纠正范围内：读 HTML 源码是正当的文本读取，显示它是另一个意图。
+配套还有一段系统提示词，紧跟出厂 `tool:read` 的指引：0.1.1 及以前是 order 101（出厂是 100），0.1.2 起取 `getSectionOrder('TOOL_READ') + 1`。当前 agent 调不到 `display_file` 时这段为空；只有 `redirectRead` 打开时它才提到 `read` 会被引回 `display_file`；在提供 `present` 的版本上，它把交付物让给 `present`、把答案里的配图让给 markdown 图片，避免同一个文件被展示、内嵌、交付三遍。`.html` **不在**纠正范围内：读 HTML 源码是正当的文本读取，显示它是另一个意图。
+
+## 完成的轮次仍把展示过的文件留在屏幕上
+
+从 0.1.6 起，对话会把一个已完成轮次的工具行（包括本插件的卡片）收进一条「用时 N 秒」的折叠行，0.1.7 起这是默认行为。一个存在的意义就是把文件摆到用户眼前的插件，答案一出来卡片就被收起来了。所以插件同时往对话的轮次尾部（turn tail）贡献一项——就是轮次收尾回复和操作行之间那一栏，harness 自己的交付文件卡片也放在那里——在轮次完成后把这一轮展示过的文件显示在那里。从 `run_code` 里展示的文件也算：这类调用记成 `tool/ptc-dispatch` 事件，不带轮次号，所以在轮次结束时按对话引擎自己给它们定的位置收集。凡是工具行本来就看得见的地方，尾部都不出现：`verbose` 对话视图，仍在运行、被中止或出错的轮次，以及在 0.1.7 上用户在运行途中插话（steer）过的轮次——0.1.7 的对话不会折叠这种轮次。
 
 ## 配置
 
-`crosery-viewer` 命名空间，三个开关，默认值都是「插件该有的行为」：
+四个开关，默认值都是「插件该有的行为」：
 
 | 字段 | 默认 | 关掉之后 |
 | --- | --- | --- |
@@ -155,7 +169,18 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 | `feedModel` | `true` | 图片只上屏，永不进模型上下文——图给人看而不是给模型看时更省 token |
 | `supersedeReadImage` | `true` | 出厂 `read_image` 重新对模型可见（于是又可能出现同一张图进两次上下文） |
 
-改 `$DSH_HOME/settings.yaml` 即可，热重载，不需要重启。也可以在 `cordis.patch.yml` 里钉死；注意 patch **整行替换 `config`**，要重述每一个键。
+在哪里改取决于 harness 版本：
+
+- **0.1.6 及以前**：改 `$DSH_HOME/settings.yaml` 的 `crosery-viewer` 段，热重载，不需要重启。
+- **0.1.7 起**（web 与桌面版）：本插件**没有设置表单**。设置页只为插件标成 volatile 的字段生成表单，而这几个字段都不是。请在 profile 自己的 patch 文件 `$DSH_HOME/profiles/<profile>/cordis.patch.yml` 里给插件条目 `viewer` 写配置——`dsh --profile web` 用 `~/.dsh/profiles/web/cordis.patch.yml`，桌面版用 `~/.dsh/profiles/desktop/cordis.patch.yml`——然后重启该 profile 或桌面应用：
+
+  ```yaml
+  - id: viewer
+    config:
+      redirectRead: false
+  ```
+
+  这一行会**整体替换**条目的 `config`，而不是与之合并，所以没写的字段保持默认值。0.1.7 上 `settings.yaml` 已被移除，它的一次性导入把每一段写进同 id 的条目，所以 `crosery-viewer` 段**不会**被带过来——它只留在 `settings.yaml.imported` 里。
 
 ## 装到 profile
 
@@ -174,10 +199,10 @@ npm run typecheck     # 两个 program 分开检查
 npm run build         # 两份 .d.ts + 两个 bundle（产物提交进仓库，改动后要一并提交）
 npm run check         # 仓库不变式（README 计数、locale 键、peer 范围、安装路径）
 npm run check:dist    # 提交的 lib/ 与重新构建逐字节一致
-npm test              # 71 个用例
+npm test              # 147 个用例
 ```
 
-已在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet-5 路由，headless Chrome 驱动）：
+v0.1.1 时在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet-5 路由，headless Chrome 驱动；0.2.0 在 0.1.7-rc.2 的 Web 与桌面版上的实测见 [docs/acceptance.zh.md](docs/acceptance.zh.md)）：
 
 - **七种卡片全部渲染**：图片（`<img>` 原尺寸，点击开灯箱、Esc 关闭）、视频（`<video>` 有进度条，`currentTime = 4` 跳转成功，`seekable.end = 6`）、音频（`<audio>`，duration 5）、PDF、**文档（docx / xlsx / pptx）**、网页、通用文件。
 - **Office 三件套真的转出来了**：三个 iframe 的 src 全部返回 `200 application/pdf` 且以 `%PDF-` 开头，frame 内部含 Chrome PDF 阅读器的 `<embed>`；pptx 显示为 1/3 页并带幻灯片缩略图侧栏，正文是真实的幻灯片内容。
@@ -204,14 +229,23 @@ npm test              # 71 个用例
 
 ## Harness 版本兼容
 
-构建与测试针对**当前唯一完整**的 harness 序列：`next` = `0.1.1-rc.2`。peer 范围带显式预发布分支，否则看似很宽的范围会把 `0.1.x` 的所有预发布静默排除。
+| 在哪 | 版本 | 证据 |
+| --- | --- | --- |
+| Web（`dsh --profile web`） | 从 `0.1.0-rc.8` 到 `0.1.7-rc.2` 的每一个已发布版本，包括 npm 的 `latest`（`0.1.5-rc.3`）、`next`（`0.1.7-rc.2`）和 `alpha`（`0.1.7-alpha.2`） | 每个版本上两份类型检查和全部 165 个测试；打包后插件在每个元组的最新版本（`0.1.0-rc.8` 到 `0.1.7-rc.2`）以及 `0.1.7-alpha.2` 上的启动冒烟；`0.1.7-rc.2` 上的浏览器实测（v0.1.1 时也在 `0.1.1-rc.2` 与 `0.1.5-rc.2` 上实测过） |
+| 桌面版 | `0.1.7-rc.2`——它唯一的频道 `nightly` | 在应用自带运行时上的启动冒烟；macOS 桌面窗口里的实测 |
 
-**不声明支持 `0.1.2-alpha.2`。** 那条序列发布不完整（`@deepseek-ai/dsh-client-runtime` 在该 tag 上没有构建，整体装不上），并且从 `@deepseek-ai/dsh-settings` 移除了 `installSettingsSection` 与 `settingsNamespace`，已发布的类型里没有替代品。声明支持只会让用户拿到 `ERESOLVE` 或运行时崩溃。因此 peer 范围止步于 `0.1.2` 之下；`.github/workflows/harness-compat.yml` 每周对 `next` 和 `alpha` 两条 tag 重跑类型检查与测试，上游一动就自动开 issue——范围按证据放宽，不靠乐观。
+peer 范围恰好接纳上面这些支持，无论按 npm 的 semver 规则，还是按 harness 从 0.1.7 起自己采用的「包含预发布」规则。`0.0.1` 与 `0.1.0-rc.2` – `rc.7` 早于浏览器半边需要的一个包，范围拒绝它们；`0.1.8` 及以后等 CI 验证过才接纳。
+
+CI 负责让这份声明保持真实。每个 pull request 都会在钉住的版本、`0.1.1-rc.2` 最低线和桌面版当天分发的版本上，跑类型检查、测试、peer 接纳检查，以及打包后插件的真实启动。每天的任务对桌面版和 npm 的 `latest`、`next`、`alpha` 重复这些检查，并在 macOS 上对桌面版压缩包本身再跑一次冒烟。每周的任务扫描每一个已发布的 harness 版本，所以新版本不需要任何人手动添加就会被测到。失败会开一个 `upstream-drift` issue，第一次全绿的运行会把它关掉。发版也以同样的检查为门禁。详见 [docs/harness-compatibility.zh.md](docs/harness-compatibility.zh.md)。
 
 ## 已知限制
 
 - **只接受本地文件路径**，不接受 URL。规范值的形状留了扩展位，但 v1 没做。
 - **视频/音频的时长和分辨率不在卡片头部**——那需要 ffprobe。`<video>` 元素自己会显示。
-- **对象 URL 缓存到页面卸载才回收**。上界是一个页面生命周期内显示过的不同附件数量，与出厂对话图库按会话持有的上界同量级。
+- **插件自己读取只有附件的图片时（0.1.5 及以前），对象 URL 要到插件卸载才回收**。上界是这期间显示过的不同附件数量，与出厂对话图库按会话持有的上界同量级。0.1.7 起这些图片由对话自带的加载器持有。
 - 远程 workspace（后端不提供 `processPath`）上，非图片媒体没有可用通道，卡片如实显示「此文件系统后端不提供可预览的本地路径」。
 - 未做视频转码：浏览器放不了的编码（例如 `.mov` 里的 ProRes）会落到 `<video>` 的降级文案上。
+- 桌面版里「在新标签打开」换成**「在侧边栏预览」**（harness 自带的预览，PDF 用 PDF.js）：桌面窗口会静默拒绝指向应用 URL 的新标签。卡片里的内容——图片、播放器、PDF 与文档内嵌框——与 web 上完全一样。
+- **轮次尾部需要 0.1.6 起的列表形态。** 在 0.1.2–0.1.5 上，折叠（`compact`）后的已完成轮次会把卡片留在折叠区里；想让它们保持展开，把对话视图切到 `normal`。在 0.1.6 的 `normal` 视图下，卡片会同时出现在轮次里和尾部。
+- 用户展开一个已折叠的轮次时，其中展示过的文件会出现两次——工具行里一次、尾部一次——与 harness 自己的交付文件卡片相同。
+- 尾部靠对话自己的过程锚点（它的 `turn-process` 轮次数据）识别插话过的轮次。如果将来的对话不再发布这份数据，插话过的轮次会把卡片显示两次——展开的工具行里一次、尾部一次——而不是丢掉它们。

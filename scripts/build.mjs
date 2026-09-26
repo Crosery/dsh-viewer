@@ -31,9 +31,14 @@ const manifest = JSON.parse(await readFile(new URL('../package.json', import.met
 const id = manifest.name
 
 /**
- * Specifiers the browser module table answers. The first eight are the shell
- * baseline every dynamic bundle may require; the rest of this package's imports
- * are type-only and erase before they reach the bundler.
+ * Specifiers left as `require()` for the shell's module table to answer. The
+ * table differs by train: 0.1.1 answers the seven below minus
+ * `@deepseek-ai/dsh-client-store`, 0.1.7 answers all eight plus
+ * `@deepseek-ai/dsh-client-ui-dockkit`. A bundle may therefore only require
+ * what the oldest supported shell answers — CI's purity step enforces that,
+ * and `scripts/smoke-boot.mjs` evaluates the served bundle against each
+ * train's real table. The rest of this package's imports are type-only and
+ * erase before they reach the bundler.
  */
 const MODULE_TABLE = [
   'react',

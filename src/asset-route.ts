@@ -22,6 +22,7 @@ import { pipeline } from 'node:stream/promises'
 import { basename } from 'node:path'
 import { classifyPath, type ViewerKind } from './contract.ts'
 import { verifyAssetRequest } from './asset-token.ts'
+import { useServedArtifact } from './cache.ts'
 
 /** One parsed, satisfiable byte range. */
 interface ByteRange {
@@ -81,13 +82,26 @@ export function guardHeaders(kind: ViewerKind): Record<string, string> {
   return {}
 }
 
+/** Optional behavior of {@link assetHandler}. */
+export interface AssetHandlerOptions {
+  /**
+   * The converted-document cache. Serving one of its artifacts marks it used,
+   * so the artifact behind a card someone is looking at is not evicted.
+   */
+  cacheDir?: string
+}
+
 /**
  * Build the asset route's handler.
  * @param secret - a thunk returning the harness MAC key, or `undefined` while
  *   key material is still loading (the route answers 503 until it resolves).
+ * @param options - optional behavior; see {@link AssetHandlerOptions}.
  * @returns the `webServer` route handler.
  */
-export function assetHandler(secret: () => Buffer | undefined): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+export function assetHandler(
+  secret: () => Buffer | undefined,
+  options: AssetHandlerOptions = {},
+): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   return async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405, { allow: 'GET, HEAD' }).end()
@@ -115,6 +129,7 @@ export function assetHandler(secret: () => Buffer | undefined): (req: IncomingMe
         return
       }
       size = info.size
+      if (options.cacheDir !== undefined) void useServedArtifact(options.cacheDir, path, info.mtimeMs)
     } catch {
       // The file was displayed once and is gone now: an ordinary outcome for a
       // reopened session, not an error worth logging.

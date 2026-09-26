@@ -73,14 +73,20 @@ export function applySupersedeReadImage(ctx: Context, enabled: () => boolean): v
     tracked.add(new WeakRef(agent))
   }
 
-  ctx.on('agent/created', ({ agent }) => {
+  // The explicit `undefined` return type is what keeps this listener valid on
+  // every train: up to 0.1.5 the event is declared `(payload) => void`, and
+  // from 0.1.6 it is a serial event whose listeners must return
+  // `undefined | Promise<undefined>` — a `void` arrow satisfies only the former.
+  ctx.on('agent/created', ({ agent }): undefined => {
     // A throwing `agent/created` listener vetoes the agent's publication
-    // entirely, so nothing here may escape.
+    // entirely (and from 0.1.6 the creation awaits it), so nothing here may
+    // escape.
     try {
       apply(agent)
     } catch {
       // Never block an agent over a presentation preference.
     }
+    return undefined
   })
 
   // The tool set changed: `read_image` may have just appeared behind its

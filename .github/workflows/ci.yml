@@ -12,6 +12,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -35,8 +36,21 @@ jobs:
       - name: Typecheck both halves
         run: npm run typecheck
 
+      # The built halves are committed so the git channel installs without the
+      # user approving a build script; this refuses a dist that drifted from
+      # src/. It compares lib/ with a scratch build, so it runs before `npm run
+      # build` rewrites lib/ in place — after that a stale commit compares equal.
+      - name: Assert the committed dist matches a fresh build
+        run: npm run check:dist
+
       - name: Build
-        run: npm run build
+        run: |
+          npm run build
+          if [ -n "$(git status --porcelain -- lib)" ]; then
+            git status --porcelain -- lib
+            echo "::error::npm run build changed lib/: commit the rebuilt dist"
+            exit 1
+          fi
 
       - name: Test
         run: npm test
@@ -44,43 +58,75 @@ jobs:
       - name: Check repo invariants
         run: npm run check
 
-      # The built halves are committed so the git channel installs without the
-      # user approving a build script; this refuses a dist that drifted from
-      # src/.
-      - name: Assert the committed dist matches a fresh build
-        run: npm run check:dist
-
       # A client bundle may only require specifiers the loader's module table
       # answers. Anything else throws at plugin activation, in the browser,
-      # where no CI would otherwise see it.
+      # where no CI would otherwise see it. The allowlist is exactly what this
+      # bundle needs, all three answered by every supported shell (0.1.1-rc.2's
+      # table has 7 entries, 0.1.7's 9): react, its JSX runtime and react-dom,
+      # of which only createPortal may be read (AGENTS.md). Anything more is a
+      # decision to make there first. The harness job's boot smoke checks each
+      # train's real table.
       - name: Assert client bundle purity
         run: |
           node - <<'JS'
           const { readFileSync } = require('node:fs')
-          const ALLOWED = new Set([
-            'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
-            '@deepseek-ai/cordis', '@deepseek-ai/dsh-client-store',
-            '@deepseek-ai/dsh-client-ui-slots', '@deepseek-ai/dsh-client-ui-primitives',
-          ])
+          const ALLOWED = new Set(['react', 'react/jsx-runtime', 'react-dom'])
           const bundle = readFileSync('lib/client.js', 'utf8')
           const required = [...bundle.matchAll(/require\("([^"]+)"\)/g)].map(m => m[1])
           const foreign = [...new Set(required)].filter(s => !ALLOWED.has(s))
           if (foreign.length > 0) {
-            console.error('client bundle requires specifiers the module table cannot answer:', foreign)
+            console.error('client bundle requires specifiers outside react, react/jsx-runtime and react-dom:', foreign)
+            process.exit(1)
+          }
+          const fromDom = new Set([...bundle.matchAll(/\bimport_react_dom\d*\.([A-Za-z_$][\w$]*)/g)].map(m => m[1]))
+          const beyondPortal = [...fromDom].filter(name => name !== 'createPortal')
+          if (beyondPortal.length > 0) {
+            console.error('client bundle reads more than createPortal from react-dom:', beyondPortal)
             process.exit(1)
           }
           if (/\bnode:/.test(bundle)) {
             console.error('client bundle references a node: builtin')
             process.exit(1)
           }
-          console.log('client bundle is pure —', required.length, 'requires, all in the module table')
+          console.log('client bundle is pure —', required.length, 'requires of', [...new Set(required)].join(', '), '; react-dom:', [...fromDom].join(', ') || 'nothing')
           JS
 
       - name: Assert the package ships what dsh needs to activate it
         run: |
           npm pack --silent >/dev/null
-          TARBALL=$(ls *.tgz)
+          TARBALL=$(ls -- *.tgz)
           for path in package/package.json package/cordis.patch.yml package/lib/index.js package/lib/client.js; do
             tar -tzf "$TARBALL" | grep -qx "$path" || { echo "missing from package: $path"; exit 1; }
           done
           echo "package contents ok"
+
+  # The same four stages harness-compat.yml runs on its schedule — types,
+  # tests, peer admission and a real boot of the packed plugin — against the
+  # pinned train and the floor. These two gate a merge: in branch protection,
+  # require `check`, `harness / harness@pinned` and `harness / harness@floor`.
+  #
+  # `issues: write` (the verdict) and `actions: read` (the `unreported` job) are
+  # declared by the called workflow and never used here: `report` stays false,
+  # so nothing is filed and `unreported` does not run. A caller cannot grant a
+  # called workflow less than it declares. A fork's pull_request token is
+  # read-only regardless.
+  harness:
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/harness-compat.yml
+    with:
+      cells: pinned,floor
+
+  # What the desktop app ships today, resolved from its update feeds. Visible
+  # on every PR but deliberately not a required check: the feed moves under
+  # open PRs, and the scheduled run owns that signal.
+  desktop:
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/harness-compat.yml
+    with:
+      cells: desktop

@@ -12,7 +12,15 @@
  * Conversion costs seconds, so the cache is the real feature. The key covers
  * the converter version as well as the file identity, because the same bytes
  * through a newer LibreOffice are a different artifact and a stale hit would be
- * invisible.
+ * invisible. The key must also be stable across restarts, or nothing is ever
+ * hit twice and the directory only grows; `cache.ts` bounds it either way.
+ *
+ * Two converters. From 0.1.6-alpha.2 the harness composes its own
+ * `officeToPdf` service with a bundled LibreOffice kit, so a desktop user with
+ * no LibreOffice installed still gets a preview of the six Office formats it
+ * accepts; {@link convertWithOfficeToPdf} drives it. Every other document
+ * format, and every older train, uses a locally installed LibreOffice through
+ * {@link convertDocument}.
  * @module @crosery/dsh-viewer/convert
  */
 /** Wall-clock budget for one conversion. A cold LibreOffice start is seconds. */
@@ -58,3 +66,116 @@ export declare function artifactName(converter: Converter, sourcePath: string, m
  * @throws when no converter is installed, or when LibreOffice produced nothing.
  */
 export declare function convertDocument(sourcePath: string, cacheDir: string, signal?: AbortSignal): Promise<string>;
+/**
+ * Extensions the harness's own Office converter accepts (`dsh-office-to-pdf`,
+ * shipped with 0.1.6-alpha.2 and later). Everything else a `document` card
+ * shows — RTF and the OpenDocument trio — still goes through LibreOffice.
+ */
+export declare const OFFICE_EXTENSIONS: readonly ["doc", "docx", "xls", "xlsx", "ppt", "pptx"];
+/** One extension {@link OfficeToPdfLike.convert} accepts. */
+export type OfficeExtension = typeof OFFICE_EXTENSIONS[number];
+/**
+ * The slice of the harness `officeToPdf` service this plugin calls, declared
+ * structurally.
+ *
+ * Not imported, not even as a type: `@deepseek-ai/dsh-office-to-pdf` does not
+ * exist on the trains before 0.1.6, so naming it would fail the typecheck of
+ * every older train this plugin still supports, and a value import would fail
+ * the whole entry at ESM link time there. The service is read by name through
+ * `ctx.get` and narrowed with {@link officeToPdfOf}.
+ */
+export interface OfficeToPdfLike {
+    /**
+     * The provider's resolved configuration — fonts, fallbacks, image
+     * resolution, limits. Read only to key the cache: see {@link officeConverterIdentity}.
+     */
+    readonly config?: unknown;
+    /**
+     * Convert Office bytes. The provider owns queueing, the bundled engine and
+     * its own content cache; the caller owns authorization and the source read.
+     */
+    convert(request: {
+        readonly extension: OfficeExtension;
+        readonly priority: 'foreground' | 'background';
+        readonly source: {
+            readonly key: string;
+            readonly version: string;
+            readonly bytes?: number;
+            read(signal: AbortSignal, maxBytes: number): Promise<{
+                readonly bytes: Uint8Array;
+                readonly version: string;
+            }>;
+        };
+    }, signal?: AbortSignal): Promise<{
+        readonly pdf: Uint8Array;
+    }>;
+}
+/**
+ * Narrow an optional service value to {@link OfficeToPdfLike}.
+ * @param service - whatever `ctx.get('officeToPdf')` returned.
+ * @returns the converter, or `undefined` when this train composes none.
+ */
+export declare function officeToPdfOf(service: unknown): OfficeToPdfLike | undefined;
+/**
+ * The extension `officeToPdf` would accept for this path, if any.
+ * @param sourcePath - the document's path.
+ * @returns the bare lowercased extension, or `undefined` for a LibreOffice-only format.
+ */
+export declare function officeExtensionOf(sourcePath: string): OfficeExtension | undefined;
+/** The source one {@link convertWithOfficeToPdf} call converts. */
+export interface OfficeSource {
+    /** The Host's own path of the document; keys the artifact and the provider's dedup. */
+    path: string;
+    /** The filesystem freshness token observed when the call resolved the file. */
+    version: string;
+    /** Byte size, when the backend reported one. */
+    bytes?: number;
+    /**
+     * Read the document's bytes, bounded by the provider's reservation.
+     * @param signal - the provider's conversion lifetime.
+     * @param maxBytes - the capacity the provider reserved for this source.
+     */
+    read(signal: AbortSignal, maxBytes: number): Promise<Uint8Array>;
+}
+/**
+ * A stable identity for the bundled converter, for the artifact key.
+ *
+ * Not the provider's `generation`: that is `randomUUID()` per provider
+ * instance, so keying on it made every restart a cold cache — the cache was
+ * never hit across restarts and only grew. The provider replaces its
+ * generation when its configuration is replaced, so the configuration itself
+ * is the stable half of the same idea: different fonts or rendering settings
+ * are a different artifact, a restart is not. What it cannot see is a harness
+ * upgrade that ships a new engine under an unchanged configuration; such an
+ * artifact is still a faithful render of unchanged bytes, and it ages out of
+ * the cache like any other.
+ * @param converter - the harness `officeToPdf` service.
+ * @returns a string that changes exactly when the provider's configuration does.
+ */
+export declare function officeConverterIdentity(converter: OfficeToPdfLike): string;
+/**
+ * Artifact name for one conversion through the bundled converter.
+ *
+ * Keyed on the converter's identity as well as on the source identity, for the
+ * same reason the LibreOffice key carries the LibreOffice version: the same
+ * bytes through different fonts or rendering settings are a different PDF.
+ * @param identity - {@link officeConverterIdentity} of the provider.
+ * @param source - the converted document.
+ * @returns the artifact's basename, extension included.
+ */
+export declare function officeArtifactName(identity: string, source: Pick<OfficeSource, 'path' | 'version' | 'bytes'>): string;
+/**
+ * Convert one Office document through the harness's bundled converter, or
+ * return the cached artifact.
+ *
+ * The provider hands the PDF back as bytes, but the asset route serves files:
+ * the bytes are written into this plugin's own cache and signed there, like a
+ * LibreOffice artifact, through {@link placeArtifact}.
+ * @param converter - the harness `officeToPdf` service.
+ * @param source - the document and its bounded reader.
+ * @param cacheDir - directory owning converted artifacts.
+ * @param signal - cancellation for the whole operation.
+ * @returns the artifact's absolute path.
+ * @throws when the format is not one the provider accepts, or the provider refuses or fails.
+ */
+export declare function convertWithOfficeToPdf(converter: OfficeToPdfLike, source: OfficeSource, cacheDir: string, signal?: AbortSignal): Promise<string>;

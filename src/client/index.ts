@@ -2,14 +2,28 @@
  * Browser half of the viewer plugin.
  *
  * Registers one card into the tool-view slot for two keys: the plugin's own
- * `display_file`, and the shipped `read_image` — which upstream renders as a
- * plain text row, so an image the model already pulled into context is invisible
- * to the human sitting in front of it. `read_image` has no card registered
- * upstream, so taking that key is additive rather than a takeover.
+ * `display_file`, and the shipped `read_image`. The two registrations differ in
+ * one way that matters. Up to 0.1.2 upstream renders `read_image` as a plain
+ * text row, so the plugin's card is the only picture of an image the model
+ * pulled into context. From 0.1.3 upstream ships its own `read_image` view at
+ * the default priority, and a second entry for the same key AT THE SAME
+ * PRIORITY is a hard error in the slot core — which is how v0.1.1 took its own
+ * `display_file` card down with it on 0.1.7. So `read_image` is registered one
+ * step behind the default: the core renders the lowest priority, which is
+ * upstream's view wherever one exists and this card everywhere else.
  *
- * The card's only Host dependency is the durable attachment channel, reached
- * through `ctx.sessions`. Everything else (video, audio, PDF, HTML) arrives over
- * the Host's signed asset route as an ordinary same-origin URL.
+ * Every registration is isolated from the others. A registration that throws
+ * inside `slots.inject` while its slot is already declared rethrows into this
+ * plugin's `apply`, and cordis answers a failed apply by unloading the whole
+ * client half — so one bad key must never be able to take the rest with it.
+ *
+ * From 0.1.6 a third registration keeps displayed files visible after their
+ * turn completes and folds; see `turn-tail.ts`.
+ *
+ * The card's only Host dependencies are durable image bytes — through the
+ * chat's own loader from 0.1.7, through `ctx.sessions` before — and everything
+ * else (video, audio, PDF, HTML) arrives over the Host's signed asset route as an
+ * ordinary same-origin URL.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -31,16 +45,27 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import { DISPLAY_TOOL, READ_IMAGE_TOOL } from '../contract.ts'
 import { ViewerCard, type ViewerCardInjected } from './ViewerCard.tsx'
+import { ViewerTail, type ViewerTailInjected } from './ViewerTail.tsx'
 import { en, zh, type ViewerKey } from './locales.ts'
 import { installViewerStyles } from './styles.ts'
+import { foldSourceOf, viewerTurnDefinitions } from './turn-tail.ts'
+import {
+  READ_IMAGE_PRIORITY, TURN_TAIL_SLOT, VIEWER_NS, contribute, turnTailJoinable, type LooseSlots,
+} from './registration.ts'
 
 export type { CardState } from './card-model.ts'
 export { cardModel, argumentPathOf, contentImageOf } from './card-model.ts'
-export type { ViewerCardInjected } from './ViewerCard.tsx'
+export type { ViewerCardInjected, ViewerCardOwner } from './ViewerCard.tsx'
+export { imageLoaderFor, type OwnerImageLoader, type ViewerSources } from './sources.ts'
+export type { ViewerTailInjected } from './ViewerTail.tsx'
 export type { ViewerKey } from './locales.ts'
-
-/** Namespace owning this card's copy. */
-export const VIEWER_NS = 'tool.viewer'
+export { isDesktopShell, mediaSourceFor } from './host.ts'
+export { READ_IMAGE_PRIORITY, TURN_TAIL_SLOT, VIEWER_NS, contribute, turnTailJoinable } from './registration.ts'
+export {
+  VIEWER_INPUT, VIEWER_NESTED, VIEWER_TURN_DATA, VIEWER_TURN_END, displayedValueOf, foldSourceOf, foldsCompletedTurns,
+  hasInterleavedInput, humanInputDefinition, nestedDisplayDefinition, tailDisplays, turnEndDefinition, turnStaysOpen,
+  viewerTurnDefinition, viewerTurnDefinitions,
+} from './turn-tail.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -170,13 +195,21 @@ function base64Of(data: Uint8Array): string {
 }
 
 /**
- * Required services. `sessions` is required rather than optional because the
- * attachment channel is the card's fallback byte source; `locale` and `slots`
- * are the registration surface.
+ * Required services: the registration surface and the copy, nothing else.
+ *
+ * `sessions` is read by name when an image actually needs its bytes, not
+ * required: from 0.1.7 the chat supplies its own image loader and the plugin's
+ * reader is only the fallback, and an entry that never activates is a hard
+ * boot failure rather than a graceful skip.
  */
-export const inject = ['slots', 'locale', 'sessions']
+export const inject = ['slots', 'locale']
 
 export const name = '@crosery/dsh-viewer'
+
+/** The Conversation registry the turn tail's data comes from (0.1.6+). */
+interface ConversationLike {
+  events?: { register?: (definition: unknown) => () => void }
+}
 
 /**
  * Client plugin body: own the URL cache and register the card under both keys.
@@ -195,13 +228,57 @@ export function apply(ctx: ClientContext): void {
   const injected = (sessionId: SessionId): ViewerCardInjected => ({
     loadAttachment: attachmentId => urls.resolve(sessionId, attachmentId),
   })
+  const slots = ctx.slots as unknown as LooseSlots
 
-  for (const key of [DISPLAY_TOOL, READ_IMAGE_TOOL]) {
-    ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
-      name: 'tool.call.toolview',
-      key,
-      locale: VIEWER_NS,
-      inject: injected,
-    }, ViewerCard))
-  }
+  contribute(slots, 'tool.call.toolview', () => ctx.slots.register({
+    name: 'tool.call.toolview',
+    key: DISPLAY_TOOL,
+    locale: VIEWER_NS,
+    inject: injected,
+  }, ViewerCard))
+
+  contribute(slots, 'tool.call.toolview', () => ctx.slots.register({
+    name: 'tool.call.toolview',
+    key: READ_IMAGE_TOOL,
+    priority: READ_IMAGE_PRIORITY,
+    locale: VIEWER_NS,
+    inject: injected,
+  }, ViewerCard))
+
+  // The turn tail needs both of its surfaces or neither: the data comes from a
+  // Conversation Definition, and the list entry that renders it has nothing to
+  // show without one. `uiConversation` is not required — the nested injection
+  // simply never runs on a train without it.
+  const folds = foldSourceOf(() => ctx.get('configForms' as never))
+  ctx.inject(['uiConversation'], (scoped) => {
+    const conversation = (scoped as unknown as { uiConversation?: ConversationLike }).uiConversation
+    const register = conversation?.events?.register
+    if (typeof register !== 'function') return
+    const [own, ...supplementary] = viewerTurnDefinitions
+    try {
+      register.call(conversation?.events, own)
+    } catch (error: unknown) {
+      console.warn('[dsh-viewer] could not register the turn-tail data; completed turns keep their displays folded', error)
+      return
+    }
+    // The rest only add to what the tail shows; one that is refused must not
+    // take the top-level displays down with it.
+    for (const definition of supplementary) {
+      try {
+        register.call(conversation?.events, definition)
+      } catch (error: unknown) {
+        console.warn(`[dsh-viewer] could not register ${definition.kind}; the turn tail may miss some displays`, error)
+      }
+    }
+    const scopedSlots = (scoped as unknown as { slots: LooseSlots }).slots
+    contribute(scopedSlots, TURN_TAIL_SLOT, () => {
+      if (!turnTailJoinable(scopedSlots.spec?.(TURN_TAIL_SLOT))) return () => {}
+      return scopedSlots.register({
+        name: TURN_TAIL_SLOT,
+        id: name,
+        locale: VIEWER_NS,
+        inject: (sessionId: SessionId): ViewerTailInjected => ({ ...injected(sessionId), folds }),
+      }, ViewerTail)
+    })
+  })
 }

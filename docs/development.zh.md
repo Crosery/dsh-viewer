@@ -8,9 +8,9 @@
 
 | | Host（`src/`） | 浏览器（`src/client/`） |
 | --- | --- | --- |
-| 拿得到 | `ctx.fs` `ctx.tools` `ctx.attachments` `ctx.webServer` `ctx.llm`、`node:` 内建 | `ctx.slots` `ctx.locale` `ctx.sessions`、DOM |
+| 拿得到 | `ctx.fs` `ctx.tools` `ctx.attachments` `ctx.webServer` `ctx.llm` `ctx.officeToPdf`（后四个可选）、`node:` 内建 | `ctx.slots` `ctx.locale`、DOM；可选的 `ctx.sessions`、`ctx.uiConversation`、`ctx.configForms`，以及 owner 给的 `loadImage`/`openFile` |
 | 负责 | 解析路径、签名 URL、转换文档、提交附件、决定 `inContext` | 把一个已经settled的工具块渲染成卡片 |
-| 禁止 | import 任何 UI 或传输类型 | 值导入除 react 外的任何外部包（[纯度门](../AGENTS.md)） |
+| 禁止 | import 任何 UI 或传输类型 | 值导入 react、react/jsx-runtime、react-dom（只用 createPortal）以外的任何外部包（[纯度门](../AGENTS.md)） |
 
 `src/contract.ts` 是两边唯一共享的模块，因此它**不引 `@deepseek-ai/schemastery`，也不引任何 `node:` 内建**——引了就会被内联进客户端 bundle 或直接把它打崩。Host 的 schema 建在它之上，放 `src/settings.ts`。
 
@@ -40,6 +40,13 @@
 3. **content 里的 image block** — 出厂 `read_image` 不写任何元数据，它的图只在内容块里。
 
 任何一条都可能拿到本 build 没写过的形状（旧日志、被截断的窗口、更新版本写的字段），所以全部防御性收窄，**失败返回 `undefined` 让卡片降级，不抛错**——抛错的条目会被移出插槽，整场对话的查看器卡片一起消失。
+
+## 与 harness 自带视图共处
+
+- **每个插槽注册都互相隔离**（`src/client/registration.ts` 的 `contribute`）。插槽已声明时，`slots.inject` 回调里抛出的错误会重新抛进 `apply`，cordis 随即卸载整个客户端半边——v0.1.1 在 0.1.7 上就是被 `read_image` 冲突连带撤掉了 `display_file` 卡片。
+- **`read_image` 以优先级 1 注册。** 插槽核心拒绝同一 key 在已占用优先级上的第二个条目，并渲染优先级最低的那个；所以 harness 自带的 `read_image` 视图（0.1.3 起）胜出，本卡片只在没有它的版本上补位。`tests/client-registration.test.ts` 用当前安装版本的真实 `SlotCore` 验证这一点。
+- **轮次尾部**（`src/client/turn-tail.ts`、`ViewerTail.tsx`）是走出「已完成轮次折叠」的官方途径：一个 Conversation Definition 把该轮的 `display_file` 结果发布成 Turn 数据，再由 `conversation.chat.turnTail` 列表条目渲染。不带轮次号的事件——`run_code` 的 `tool/ptc-dispatch`、`user/message`——没法路由到这个按轮次号建的 Definition；它们各自开 context，用 `reader.previous` 串成链，由 `turn/end` 开的 context 按引擎自己给的定位回读本轮。只在这两个接口都以这种形态存在的版本（0.1.6 起）才接入；工具行本来就可见时它什么都不渲染，包括 0.1.7 对话里插话过的轮次。
+- **桌面版按能力识别**（`src/client/host.ts`：`dsh-app:` 协议或 `__DSH_HOST_PATHS__`），绝不看 user agent。桌面窗口会静默拒绝指向应用 URL 的新标签，所以那里「新标签打开」换成 owner 的 `openFile`（侧边栏预览）；视频/音频改从 `__DSH_TRANSPORT__.streamBaseUrl` 加载（`mediaSourceFor`），因为经 `dsh-app:` 转发第一次加载的媒体不能拖动。PDF 内嵌框在桌面窗口里与浏览器里一样能显示（已在 0.1.7-rc.2 实测）。
 
 ## 两个反直觉的渲染事实
 
