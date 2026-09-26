@@ -113,7 +113,7 @@ for (const version of versions) {
   } catch (error) {
     if (!(error instanceof RegistryError)) throw error
     row.outcome = 'registry error'
-    row.detail = tail(error.message, 2).replace(/\n/g, ' ')
+    row.detail = error.message.split('\n')[0]
     process.stderr.write(`${row.outcome}\n`)
   }
   rows.push(row)
