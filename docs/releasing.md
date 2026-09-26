@@ -10,7 +10,7 @@
 4. Tag and push:
 
 ```sh
-git tag v0.3.0 && git push origin v0.3.0
+git tag v0.2.1 && git push origin v0.2.1
 ```
 
 `.github/workflows/release.yml` takes it from there, in three jobs, around **one tarball packed once**.

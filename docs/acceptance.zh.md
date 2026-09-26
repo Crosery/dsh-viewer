@@ -4,9 +4,9 @@
 
 在哪些 harness 版本上做过端到端验证、怎么验证的。下面每个数字都来自真实运行的 host，不是对着代码推出来的。末尾的 v0.1.1 各节保留为那次发版的记录。
 
-## 0.3.0：0.1.0-rc.8 之前的版本，实测
+## 0.2.1：0.1.0-rc.8 之前的版本，实测
 
-0.2.0 的范围从 `0.1.0-rc.8` 起算，理由是 `dsh-client-ui-renderer` 在那里才首次发布。从来没人在更早的版本上跑过本插件。下面这些跑过了，在真实浏览器里，`src/` 和 `lib/` 没有任何改动（`lib/` 与 v0.2.0 逐字节一致，先装的是 0.2.0 的压缩包；最后一行用 0.3.0 自己的压缩包重做了一遍）。
+0.2.0 的范围从 `0.1.0-rc.8` 起算，理由是 `dsh-client-ui-renderer` 在那里才首次发布。从来没人在更早的版本上跑过本插件。下面这些跑过了，在真实浏览器里，`src/` 和 `lib/` 没有任何改动（`lib/` 与 v0.2.0 逐字节一致，先装的是 0.2.0 的压缩包；最后一行用 0.2.1 自己的压缩包重做了一遍）。
 
 每个 host 都是一次性的 `DSH_HOME`：harness 按发布时的样子安装（`npm install --before` 下一次发布），插件用 `dsh plugin --profile web add` 安装。一个模拟的 OpenAI 兼容模型服务（0.1.7 桌面版实测用的那个的副本）通过 profile 的 `cordis.patch.yml` 配置（`llm-pi-ai` provider、`agent-default-model`）；收到 `SHOW:display_file:png` 或 `:pdf` 时，它对一张合成的 480×300 PNG 或一页 PDF 调用 `display_file`。目录选择器固定为页内浏览器，工作区预置为测试文件所在目录，所以不会弹出原生对话框。
 
@@ -19,11 +19,11 @@
 | `0.0.1-rc.5`，v0.2.0 压缩包 | 正常加载，没有启动审计页 | `480×300 · 6.1 KB`，已进入模型上下文 | `role=dialog`、`aria-modal`，焦点在关闭按钮上，Escape 关闭 | 内嵌 frame，不带 `sandbox`；签名资源回答 `200 application/pdf` | 两张卡片都从会话日志重建 | 没有错误或警告 |
 | `0.1.0-rc.2`，v0.2.0 压缩包 | 同上 | 同上 | 同上 | 同上 | 同上 | 同上 |
 | `0.1.0-rc.6`，v0.2.0 压缩包 | 同上 | 同上 | 同上 | 同上 | 同上 | 同上 |
-| `0.0.1-rc.5`，0.3.0 压缩包 | 同上 | 同上 | 同上 | 同上 | 同上 | 同上 |
+| `0.0.1-rc.5`，0.2.1 压缩包 | 同上 | 同上 | 同上 | 同上 | 同上 | 同上 |
 
 这些版本缺什么、为什么不要紧，见 [harness-compatibility.zh.md](harness-compatibility.zh.md#010-rc8-之前的版本)。
 
-## 0.3.0：每一个已发布版本
+## 0.2.1：每一个已发布版本
 
 `node scripts/sweep-trains.mjs`，2026-09-26 在最终的代码树上运行（Node 26.7.0、npm 11），覆盖全部 27 个已发布版本。某版本从未发布的 harness 包保留本仓库钉住的版本（`0.1.0-rc.8` 之前是 `dsh-client-ui-renderer@0.1.7-rc.2`），有 `dsh-client-runtime` 的版本把它钉到该版本。
 
@@ -35,9 +35,9 @@
 
 每个 harness peer 在两种规则下都接纳全部 27 个版本。退出码是 0。
 
-## 0.3.0：启动冒烟，在无头 Chrome 里运行
+## 0.2.1：启动冒烟，在无头 Chrome 里运行
 
-严格模式（不带豁免），Node 26.7.0、pnpm 11.7.0，通过 playwright-core 驱动无头 Google Chrome 153，每一行装的都是同一个打包好的 `dsh-viewer-0.3.0.tgz`。每个 harness 都以「该版本自己的 `@deepseek-ai/dsh` 发布一秒之后」为 `--before` 安装（只因它自己晚发布的包才往后挪），装好的依赖树里没有任何更晚版本的包。每一行的每个阶段都通过：harness、pnpm、install、boot、host-activation、client-graph、client-load、client-exports 和 `client-boot`——应用在 Chrome 里挂载完成、本插件的模块已加载，页面上没有任何关于本插件的问题。
+严格模式（不带豁免），Node 26.7.0、pnpm 11.7.0，通过 playwright-core 驱动无头 Google Chrome 153，每一行装的都是同一个打包好的 `dsh-viewer-0.2.1.tgz`。每个 harness 都以「该版本自己的 `@deepseek-ai/dsh` 发布一秒之后」为 `--before` 安装（只因它自己晚发布的包才往后挪），装好的依赖树里没有任何更晚版本的包。每一行的每个阶段都通过：harness、pnpm、install、boot、host-activation、client-graph、client-load、client-exports 和 `client-boot`——应用在 Chrome 里挂载完成、本插件的模块已加载，页面上没有任何关于本插件的问题。
 
 | Harness | 启动条目 | 模块表 |
 | --- | --- | --- |

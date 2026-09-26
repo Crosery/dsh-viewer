@@ -10,7 +10,7 @@
 4. 打 tag 并推：
 
 ```sh
-git tag v0.3.0 && git push origin v0.3.0
+git tag v0.2.1 && git push origin v0.2.1
 ```
 
 剩下的交给 `.github/workflows/release.yml`，分三个任务，围绕**只打包一次的同一个 tarball**。

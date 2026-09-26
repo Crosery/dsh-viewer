@@ -4,9 +4,9 @@
 
 What was verified end to end, on which harness versions, and how. Every number below came from a running host, not from reasoning about one. The v0.1.1 sections at the end are kept as the record of that release.
 
-## 0.3.0: the trains before 0.1.0-rc.8, live
+## 0.2.1: the trains before 0.1.0-rc.8, live
 
-The ranges of 0.2.0 started at `0.1.0-rc.8`, on the reasoning that `dsh-client-ui-renderer` first shipped there. Nobody had run the plugin on an earlier train. These did, in a real browser, with no change to `src/` or `lib/` (`lib/` is byte-identical to v0.2.0's, and 0.2.0's tarball was installed first; the last row repeats the check with 0.3.0's own tarball).
+The ranges of 0.2.0 started at `0.1.0-rc.8`, on the reasoning that `dsh-client-ui-renderer` first shipped there. Nobody had run the plugin on an earlier train. These did, in a real browser, with no change to `src/` or `lib/` (`lib/` is byte-identical to v0.2.0's, and 0.2.0's tarball was installed first; the last row repeats the check with 0.2.1's own tarball).
 
 Each host was a throwaway `DSH_HOME` holding a harness installed as released (`npm install --before` the next release) and the plugin installed with `dsh plugin --profile web add`. A mock OpenAI-compatible provider (a copy of the one the 0.1.7 desktop run used) was configured through the profile's `cordis.patch.yml` (`llm-pi-ai` provider, `agent-default-model`); asked for `SHOW:display_file:png` or `:pdf`, it calls `display_file` on a synthetic 480×300 PNG or a one-page PDF. The directory picker was pinned to the in-page browser and the workspace seeded to the fixtures directory, so no native dialog opens.
 
@@ -19,11 +19,11 @@ Each host was a throwaway `DSH_HOME` holding a harness installed as released (`n
 | `0.0.1-rc.5`, v0.2.0 tarball | loads, no startup-audit page | `480×300 · 6.1 KB`, in model context | `role=dialog`, `aria-modal`, focus on the close button, Escape closes it | inline frame, no `sandbox`; the signed asset answers `200 application/pdf` | both cards rebuilt from the session log | no errors or warnings |
 | `0.1.0-rc.2`, v0.2.0 tarball | the same | the same | the same | the same | the same | the same |
 | `0.1.0-rc.6`, v0.2.0 tarball | the same | the same | the same | the same | the same | the same |
-| `0.0.1-rc.5`, 0.3.0 tarball | the same | the same | the same | the same | the same | the same |
+| `0.0.1-rc.5`, 0.2.1 tarball | the same | the same | the same | the same | the same | the same |
 
 What these trains lack, and why it does not matter, is in [harness-compatibility.md](harness-compatibility.md#the-trains-before-010-rc8).
 
-## 0.3.0: every published version
+## 0.2.1: every published version
 
 `node scripts/sweep-trains.mjs`, run on 2026-09-26 (Node 26.7.0, npm 11) on the final tree, over all 27 published versions. A harness package the train never published keeps the repository's pin (`dsh-client-ui-renderer@0.1.7-rc.2` before `0.1.0-rc.8`), and `dsh-client-runtime` is pinned to the train where it exists.
 
@@ -35,9 +35,9 @@ What these trains lack, and why it does not matter, is in [harness-compatibility
 
 Every harness peer admits all 27 versions under both rules. The exit status was 0.
 
-## 0.3.0: boot smoke, in headless Chrome
+## 0.2.1: boot smoke, in headless Chrome
 
-Strict (no exemption), Node 26.7.0, pnpm 11.7.0, headless Google Chrome 153 through playwright-core, one packed `dsh-viewer-0.3.0.tgz` for every row. Each harness is installed `--before` one second after its own `@deepseek-ai/dsh` was published (moved later only past its own stragglers), and the installed tree held no package of a later train. Every stage passed on every row — harness, pnpm, install, boot, host-activation, client-graph, client-load, client-exports and `client-boot`: the app mounted in Chrome with the viewer's module loaded and nothing on the page about the plugin.
+Strict (no exemption), Node 26.7.0, pnpm 11.7.0, headless Google Chrome 153 through playwright-core, one packed `dsh-viewer-0.2.1.tgz` for every row. Each harness is installed `--before` one second after its own `@deepseek-ai/dsh` was published (moved later only past its own stragglers), and the installed tree held no package of a later train. Every stage passed on every row — harness, pnpm, install, boot, host-activation, client-graph, client-load, client-exports and `client-boot`: the app mounted in Chrome with the viewer's module loaded and nothing on the page about the plugin.
 
 | Harness | Boot entries | Module table |
 | --- | --- | --- |
