@@ -54,7 +54,7 @@ release tarball 带着同样的文件，另有两条理由：可锁定版本的�
 要发布需要两样东西：
 
 1. `NPM_TOKEN` 仓库 secret —— 一个**确实能发布到 `@crosery` scope** 的 token。光有 token 不够：第一次带着 token 尝试，结果就是 `404 Not Found - PUT https://registry.npmjs.org/@crosery%2fdsh-viewer`，这是 npm 对「无权发布该 scope」的报法。registry 上还从未有过任何 `@crosery/*` 包，所以 scope 得先存在，token 对应的账号也得能写它。
-2. `NPM_PUBLISH=true` 仓库**变量**（Settings → Secrets and variables → Actions → Variables）。没有它发布步骤直接跳过，npm 还没准备好时推 tag 也能保持绿色。
+2. `NPM_PUBLISH=true` 仓库**变量**（Settings → Secrets and variables → Actions → Variables）。没有它发布步骤直接跳过，npm 还没准备好时推 tag 也能保持绿色。设了它却没有 `NPM_TOKEN` 时，该步骤给出警告并跳过，不会在没有凭据的情况下尝试发布。
 
 要手工发布：
 

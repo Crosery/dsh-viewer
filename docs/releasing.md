@@ -54,7 +54,7 @@ Not yet published. Publishing is **opt-in and off by default**: a tag push build
 To publish, two things are required:
 
 1. `NPM_TOKEN` as a repository secret — a token that can actually publish to the `@crosery` scope. A token alone is not enough: the first attempt with one configured came back `404 Not Found - PUT https://registry.npmjs.org/@crosery%2fdsh-viewer`, which is how npm reports an unauthorized scoped publish. No `@crosery/*` package exists on the registry yet, so the scope has to exist and the token's account has to be able to write to it.
-2. `NPM_PUBLISH=true` as a repository **variable** (Settings → Secrets and variables → Actions → Variables). Without it the publish step is skipped, so a tag run stays green while npm is not set up.
+2. `NPM_PUBLISH=true` as a repository **variable** (Settings → Secrets and variables → Actions → Variables). Without it the publish step is skipped, so a tag run stays green while npm is not set up. With it but without `NPM_TOKEN`, the step warns and skips rather than attempting a publish with no credentials.
 
 To publish by hand instead:
 

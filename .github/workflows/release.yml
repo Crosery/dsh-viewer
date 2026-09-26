@@ -177,11 +177,25 @@ jobs:
       #
       # Turn it on by setting the repository variable NPM_PUBLISH=true (Settings
       # → Secrets and variables → Actions → Variables) once the npm scope exists
-      # and NPM_TOKEN can publish to it. The guard reads only `vars`, so the
-      # token can stay on this one step. It publishes the smoked tarball itself,
+      # and NPM_TOKEN can publish to it. It publishes the smoked tarball itself,
       # not a fresh pack of the tree.
+      #
+      # The token lives on this step only. The `if` can read the variable but
+      # not this step's env — GitHub evaluates a step's `if` before applying its
+      # `env` — so the missing-token check is in the script, and a variable set
+      # without a token warns and skips instead of publishing with no
+      # credentials. It checks NPM_TOKEN, not NODE_AUTH_TOKEN: setup-node@v4
+      # exports a placeholder NODE_AUTH_TOKEN (`XXXXX-XXXXX-XXXXX-XXXXX`) to
+      # every later step when none is set, which a check on that name would
+      # take for a token. The .npmrc setup-node wrote reads NODE_AUTH_TOKEN only
+      # when npm publishes, so no other step needs it.
       - name: Publish to npm
         if: ${{ vars.NPM_PUBLISH == 'true' }}
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish dsh-viewer.tgz --access public
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::warning::NPM_PUBLISH is true but the NPM_TOKEN secret is not set; skipping npm publish"
+            exit 0
+          fi
+          NODE_AUTH_TOKEN="$NPM_TOKEN" npm publish dsh-viewer.tgz --access public
