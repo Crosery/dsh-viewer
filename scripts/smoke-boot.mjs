@@ -184,7 +184,7 @@ function laterCutoff(output, before) {
   const r = run('npm', ['view', refused.name, 'time', '--json'], { allowFailure: true })
   let times = {}
   try { times = JSON.parse(r.stdout) } catch {}
-  const at = times[refused.version ?? (times[values.dsh] === undefined ? 'created' : values.dsh)]
+  const at = times[refused.version] ?? times[values.dsh] ?? times['created']
   if (typeof at !== 'string' || at <= before) return undefined
   return new Date(Date.parse(at) + 1000).toISOString()
 }
