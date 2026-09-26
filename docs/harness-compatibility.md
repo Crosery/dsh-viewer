@@ -44,7 +44,7 @@ The peer range, identical for every `@deepseek-ai/dsh-*` peer, one comparator se
 
 `npm run check` asserts that this range admits every published version above under both semver rules, refuses every build outside the support, and keeps one prerelease-floored comparator set per tuple.
 
-No peer is optional. dsh ≥0.1.7's `evaluatePluginCompatibility` ignores `peerDependenciesMeta` and checks every `@deepseek-ai/dsh*` peer against the running version, so marking one optional could not make 0.1.7 refuse the plugin, but it would not make any train more usable either. The only peer some published train lacks is `@deepseek-ai/dsh-home-paths`, absent on `0.0.1-rc.1` and `rc.2`, and the Host half value-imports it; those two trains do not install anyway.
+No peer is optional, because optional would change nothing. dsh ≥0.1.7's `evaluatePluginCompatibility` (dsh-app-boot) checks every `@deepseek-ai/dsh*` peer against the running version, prerelease-inclusive, optional or not; no package of 0.1.7 reads `peerDependenciesMeta` at all, `dsh-plugin-manager` included. A peer would be worth marking optional only if an installable train lacked it and the plugin ran without it. The only peer some published train lacks is `@deepseek-ai/dsh-home-paths`, absent on `0.0.1-rc.1` and `rc.2`, and the Host half value-imports it; those two trains do not install anyway.
 
 ### Trains whose own peer graph does not resolve
 

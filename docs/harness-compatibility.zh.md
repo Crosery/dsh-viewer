@@ -44,7 +44,7 @@ peer 范围，每个 `@deepseek-ai/dsh-*` peer 都一样，每个元组一组比
 
 `npm run check` 断言：这个范围在两种 semver 规则下都接纳上表每个已发布版本，拒绝支持范围外的每个构建，并且每个元组保持一组带预发布下限的比较器。
 
-没有哪个 peer 是可选的。dsh ≥0.1.7 的 `evaluatePluginCompatibility` 不看 `peerDependenciesMeta`，每个 `@deepseek-ai/dsh*` peer 都拿去比对运行中的版本，所以把某个 peer 标成可选不会让 0.1.7 拒绝本插件，但也不会让任何版本变得更能用。唯一在某些已发布版本上缺席的 peer 是 `@deepseek-ai/dsh-home-paths`：`0.0.1-rc.1` 和 `rc.2` 上没有，而 Host 半边对它是值导入；那两个版本本来就装不上。
+没有哪个 peer 是可选的，因为标成可选什么也改变不了。dsh ≥0.1.7 的 `evaluatePluginCompatibility`（dsh-app-boot）把每个 `@deepseek-ai/dsh*` peer 都拿去比对运行中的版本，计入预发布版，可选与否一样；0.1.7 没有任何包读取 `peerDependenciesMeta`，`dsh-plugin-manager` 也不读。只有当某个装得上的版本缺这个 peer、而插件没有它也能跑时，才值得把它标成可选。唯一在某些已发布版本上缺席的 peer 是 `@deepseek-ai/dsh-home-paths`：`0.0.1-rc.1` 和 `rc.2` 上没有，而 Host 半边对它是值导入；那两个版本本来就装不上。
 
 ### 自身 peer 图解析不了的版本
 
