@@ -170,9 +170,11 @@ jobs:
       # Exit 3 is an incomplete train: the step passes, `incomplete` is set,
       # and every later stage but admission stands down — types and tests
       # still run when `compiles` says the train has every package they need.
+      # Besides the registry reads, this installs @deepseek-ai/dsh on its own
+      # in a dry run (legacy peer mode, seconds; npm may take minutes to fail).
       - name: Resolve ${{ matrix.cell }}
         id: target
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           set +e
           node scripts/harness-target.mjs "$CELL" --repoint
