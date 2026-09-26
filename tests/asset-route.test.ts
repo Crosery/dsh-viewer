@@ -163,6 +163,9 @@ test('serving a converted artifact marks it used for eviction; serving a user fi
     await writeFile(path, '%PDF-1.7')
     await utimes(path, twoDaysAgo, twoDaysAgo)
   }
+  // Compare against what the filesystem stored, not the Date that set it:
+  // ext4 reads a millisecond time back as e.g. …526.999.
+  const before = { artifact: (await stat(artifact)).mtimeMs, photo: (await stat(photo)).mtimeMs }
   const handler = assetHandler(() => KEY, { cacheDir })
   const bare = createServer((req, res) => { void handler(req, res) })
   await new Promise<void>((resolve) => { bare.listen(0, '127.0.0.1', resolve) })
@@ -175,9 +178,9 @@ test('serving a converted artifact marks it used for eviction; serving a user fi
   }
   bare.close()
   // The stamp is written beside the response, not before it.
-  for (let tries = 0; tries < 50 && (await stat(artifact)).mtimeMs === twoDaysAgo.getTime(); tries++) {
+  for (let tries = 0; tries < 50 && (await stat(artifact)).mtimeMs === before.artifact; tries++) {
     await new Promise(resolve => setTimeout(resolve, 10))
   }
-  ok((await stat(artifact)).mtimeMs > twoDaysAgo.getTime(), 'the artifact is stamped as used')
-  equal((await stat(photo)).mtimeMs, twoDaysAgo.getTime(), 'the user file is untouched')
+  ok((await stat(artifact)).mtimeMs > before.artifact, 'the artifact is stamped as used')
+  equal((await stat(photo)).mtimeMs, before.photo, 'the user file is untouched')
 })
