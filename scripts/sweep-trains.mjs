@@ -7,6 +7,7 @@
  * `--versions` narrows it) this builds a scratch copy of the repository whose
  * `@deepseek-ai/dsh-*` devDependencies — plus cordis and schemastery, taken
  * from that version's own `@deepseek-ai/dsh` manifest — are repointed at it,
+ * with every other devDependency pinned to what package-lock.json resolved,
  * installs the full peer graph, and runs both typechecks and the test suite.
  * The committed tree is never touched; `--work` defaults to a directory under
  * the system temp dir and is reused between runs, so a re-run only reinstalls
@@ -57,6 +58,7 @@ const option = (name) => {
 const work = resolve(option('--work') ?? join(tmpdir(), 'dsh-viewer-sweep'))
 const reinstall = args.includes('--reinstall')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'))
 const harnessDeps = Object.keys(pkg.devDependencies).filter((name) => name.startsWith('@deepseek-ai/dsh-'))
 const peers = harnessPeers(pkg)
 
@@ -68,7 +70,7 @@ function diagnostics(output) {
 /** Prepare (or reuse) the scratch copy for one version; returns the install outcome. */
 function prepare(version) {
   const dir = join(work, version)
-  const { manifest } = repointManifest(pkg, version)
+  const { manifest } = repointManifest(pkg, version, lock)
   const wanted = JSON.stringify(manifest.devDependencies)
   const stamp = join(dir, '.sweep-installed')
   mkdirSync(dir, { recursive: true })

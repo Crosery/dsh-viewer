@@ -22,7 +22,8 @@
  * version that matches the desktop.
  *
  * --repoint  rewrites every `@deepseek-ai/dsh-*` devDependency to the exact
- *            version (cordis and schemastery to what that train ships) and
+ *            version (cordis and schemastery to what that train ships), pins
+ *            every other devDependency to what package-lock.json resolved, and
  *            writes the exact versions to the step summary.
  * --install  installs the result from scratch (`npm ci` for `pinned`), through
  *            the train's own `@deepseek-ai/dsh` graph if its peers do not
@@ -170,7 +171,10 @@ async function target(cell) {
 
   let manifest = pkg
   if ((flags.repoint || flags.install) && cell !== 'pinned') {
-    const repointed = repointManifest(pkg, version)
+    // The toolchain versions a repointed cell keeps. Read here, not at load:
+    // a failed install may have removed the lockfile before a later step runs.
+    const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'))
+    const repointed = repointManifest(pkg, version, lock)
     if (repointed.missing.length > 0) {
       const missing = repointed.missing.map((m) => `${m.name} (${m.why})`).join(', ')
       out('missing', missing)

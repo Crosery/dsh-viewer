@@ -17,12 +17,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { FLOOR, graphFailed, npmErrorCode, planCells, parseFeed, refusals, registryFailed, sweepStart, tupleHeads } from '../scripts/harness-lib.mjs'
+import { FLOOR, graphFailed, npmErrorCode, pinToolchain, planCells, parseFeed, refusals, registryFailed, sweepStart, tupleHeads } from '../scripts/harness-lib.mjs'
 import { bootGraphOf, classifyDiagnostics, exportedNames, maskTokens, membersRead, moduleTableOf, publishedTooLate, unmetPeers } from '../scripts/smoke-lib.mjs'
 
 const require = createRequire(import.meta.url)
 const verdict = require('../scripts/harness-verdict.cjs')
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+const lock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'))
 const peers = Object.entries(pkg.peerDependencies as Record<string, string>).filter(([name]) => name.startsWith('@deepseek-ai/dsh'))
 
 const PUBLISHED = [
@@ -92,6 +93,26 @@ describe('sweep plan', () => {
 
   it('knows the head of each tuple', () => {
     assert.deepEqual([...tupleHeads(['0.1.2-alpha.5', '0.1.2-rc.1', '0.1.3-alpha.2'])].sort(), ['0.1.2-rc.1', '0.1.3-alpha.2'])
+  })
+})
+
+describe('repointed cells', () => {
+  const toolchain = Object.keys(pkg.devDependencies).filter((name) => !name.startsWith('@deepseek-ai/'))
+
+  it('keep the toolchain the lockfile resolved, so only the harness moves', () => {
+    const pinned = pinToolchain(pkg, lock)
+    assert.ok(toolchain.includes('typescript') && toolchain.includes('@types/node'))
+    for (const name of toolchain) assert.equal(pinned.devDependencies[name], lock.packages[`node_modules/${name}`].version, name)
+    for (const [name, range] of Object.entries(pkg.devDependencies as Record<string, string>)) {
+      if (name.startsWith('@deepseek-ai/')) assert.equal(pinned.devDependencies[name], range, name)
+    }
+    assert.notEqual(pinned, pkg)
+    assert.equal(pkg.devDependencies.typescript, '^5.9.0')
+  })
+
+  it('refuse a lockfile that does not resolve a devDependency', () => {
+    const { ['node_modules/typescript']: _gone, ...packages } = lock.packages
+    assert.throws(() => pinToolchain(pkg, { ...lock, packages }), /no exact version of devDependency typescript/)
   })
 })
 
@@ -393,6 +414,21 @@ describe('registry failures are failures, not incomplete trains', () => {
     const empty = JSON.parse((await install(await registry({}))).stdout)
     assert.deepEqual(empty, { ok: false, incomplete: true, via: '@deepseek-ai/dsh@0.1.7-rc.2 graph (the peer graph named a package npm cannot find)' })
     assert.equal(JSON.parse((await install(DOWN)).stdout), 'RegistryError')
+  })
+
+  it('repoints only the harness and pins the toolchain from the lockfile', async () => {
+    const harness = Object.keys(pkg.devDependencies).filter((name) => name.startsWith('@deepseek-ai/dsh-'))
+    const url = await registry(Object.fromEntries(['@deepseek-ai/dsh', ...harness].map((name) => [name, ['0.1.7-rc.2', '0.1.7-rc.9']])))
+    const r = await node(['scripts/harness-target.mjs', '0.1.7-rc.9', '--repoint'], url)
+    assert.equal(r.code, 0, r.stderr)
+    const written = JSON.parse(readFileSync(join(copy, 'package.json'), 'utf8'))
+    cpSync(join(repo, 'package.json'), join(copy, 'package.json'))
+    for (const [name, range] of Object.entries(written.devDependencies as Record<string, string>)) {
+      const expected = name.startsWith('@deepseek-ai/dsh-') ? '0.1.7-rc.9'
+        : name.startsWith('@deepseek-ai/') ? pkg.devDependencies[name]
+          : lock.packages[`node_modules/${name}`].version
+      assert.equal(range, expected, name)
+    }
   })
 
   it('fails the sweep on a registry error instead of passing the version as out of scope', async () => {

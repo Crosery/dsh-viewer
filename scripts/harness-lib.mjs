@@ -169,6 +169,27 @@ export function graphFailed(output) {
   return /\b(ERESOLVE|ETARGET|E404)\b|No matching version found|notarget/.test(output)
 }
 
+/**
+ * `manifest` with every devDependency outside `@deepseek-ai/` pinned to the
+ * exact version `lock` (package-lock.json) resolved: the toolchain —
+ * TypeScript, `@types/*`, esbuild, semver.
+ *
+ * A repointed cell installs without the lockfile, because the train's graph
+ * has to resolve fresh. Without this its toolchain would float: a new
+ * `@types/node` or TypeScript turns `floor` and the sweep red while `pinned`
+ * (`npm ci`) stays green, and the drift issue blames upstream for it.
+ */
+export function pinToolchain(manifest, lock) {
+  const pinned = structuredClone(manifest)
+  for (const name of Object.keys(pinned.devDependencies ?? {})) {
+    if (name.startsWith('@deepseek-ai/')) continue
+    const version = lock?.packages?.[`node_modules/${name}`]?.version
+    if (!semver.valid(version)) throw new Error(`package-lock.json resolves no exact version of devDependency ${name}; run \`npm install\` and commit the lockfile`)
+    pinned.devDependencies[name] = version
+  }
+  return pinned
+}
+
 /** The npm error code of a failed `npm … --json` run: the JSON body on stdout, else the stderr banner. */
 export function npmErrorCode(stdout, stderr) {
   try {
@@ -275,11 +296,13 @@ export function tail(text, lines = 6) {
  * A copy of the manifest whose `@deepseek-ai/dsh-*` devDependencies name one
  * exact version, with cordis and schemastery taken from that version's own
  * `@deepseek-ai/dsh` manifest so a train that moved them is compiled against
- * what it ships. `missing` lists harness devDependencies the train never
- * published; with any of them the plugin cannot be built there as-is.
+ * what it ships, and every other devDependency pinned to what `lock` — this
+ * repository's package-lock.json — resolved ({@link pinToolchain}). `missing`
+ * lists harness devDependencies the train never published; with any of them
+ * the plugin cannot be built there as-is.
  */
-export function repointManifest(pkg, version) {
-  const manifest = structuredClone(pkg)
+export function repointManifest(pkg, version, lock) {
+  const manifest = pinToolchain(pkg, lock)
   const harnessDeps = Object.keys(manifest.devDependencies).filter((name) => name.startsWith('@deepseek-ai/dsh-'))
   const missing = harnessDeps
     .filter((name) => !versionsOf(name).includes(version))
