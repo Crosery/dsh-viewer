@@ -116,6 +116,11 @@ function run(command, args, options = {}) {
   return r
 }
 
+/** A request to the booted server; one that hangs fails its stage instead of the step's clock. */
+function get(url, init = {}) {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(60_000) })
+}
+
 async function freePort() {
   return new Promise((ok, reject) => {
     const server = createServer().once('error', reject).listen(0, '127.0.0.1', () => {
@@ -355,11 +360,11 @@ try {
   stage('host-activation', 'passed', found.others.length > 0 ? `other entries did not activate: ${found.others.length} line(s), see log` : undefined)
 
   // 6. Browser half: authenticated index, boot graph, served bundle.
-  const first = await fetch(url, { redirect: 'manual' })
+  const first = await get(url, { redirect: 'manual' })
   const cookie = (first.headers.get('set-cookie') ?? '').split(';')[0]
   const headers = cookie ? { cookie } : {}
   const base = new URL('/', url)
-  const index = first.status === 200 ? first : await fetch(base, { headers })
+  const index = first.status === 200 ? first : await get(base, { headers })
   if (index.status !== 200) fail('client-graph', `the index answered ${index.status} after the token exchange (${first.status})`)
   const html = await index.text()
   const graph = bootGraphOf(html)
@@ -377,14 +382,14 @@ try {
   const assets = [...html.matchAll(/<(?:script|link)\b[^>]*?\b(?:src|href)="([^"]+\.js)"/g)].map((m) => m[1])
   let table
   for (const asset of assets) {
-    const res = await fetch(new URL(asset, base), { headers })
+    const res = await get(new URL(asset, base), { headers })
     if (!res.ok) continue
     table = moduleTableOf(await res.text())
     if (table !== undefined) { result.moduleTable = { asset: asset.replace(/^.*\//, ''), specifiers: table }; break }
   }
   if (table === undefined) fail('client-load', `no static module table found in the shell's scripts (${assets.join(', ') || 'none'}); smoke-boot.mjs needs to learn this train's shell`)
 
-  const bundle = await fetch(new URL(entry.url, base), { headers })
+  const bundle = await get(new URL(entry.url, base), { headers })
   if (bundle.status !== 200) fail('client-load', `the bundle answered ${bundle.status}`)
   const source = await bundle.text()
   const factories = new Map()

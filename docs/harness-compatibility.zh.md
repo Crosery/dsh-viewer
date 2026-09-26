@@ -114,6 +114,12 @@ node scripts/sweep-trains.mjs                             # 每个已发布版�
 
 定时运行给每个失败的格开一个 `upstream-drift` issue，标题是 `Harness compatibility broken against @<cell>`，之后每次失败都在上面追加评论。该格所有阶段第一次全部通过的那次运行会评论并关闭它。
 
+定时运行的任何失败都不会悄无声息地结束：
+
+- **每个阶段都有时限**（安装 40 分钟、冒烟 45 分钟，等等），因超时被取消的阶段算作失败。只有被人手动取消的运行不做判定。
+- **`setup`**（checkout、Node、`npm ci`）也是一个阶段，所以在第一个真正的阶段之前出了 runner 或 registry 问题也会上报。
+- **`unreported` 任务**在所有格之后运行。某个格在自己的判定步骤能上报之前就失败或超时了（checkout 失败、任务本身的时限到了），它会被记进同一个 issue，并写明是哪一步停下的。`plan` 任务失败时会开 `Harness compatibility run could not plan its cells`，下一次成功规划的运行会把它关掉。
+
 按这个顺序处理：
 
 1. **看是哪个阶段失败。** 步骤摘要里写着，冒烟还会写出是哪个子阶段。

@@ -114,6 +114,12 @@ The smoke refuses any `DSH_HOME` outside the OS temp directory, so it cannot tou
 
 Scheduled runs file one `upstream-drift` issue per failing cell, titled `Harness compatibility broken against @<cell>`, and comment on it on every further failure. The first run where every stage of that cell passes comments on the issue and closes it.
 
+Nothing a scheduled run does ends silently:
+
+- **Every stage has a time limit** (the install 40 minutes, the smoke 45, and so on), and a stage cancelled by its limit counts as failed. Only a run someone cancelled is not judged.
+- **`setup`** (checkout, Node, `npm ci`) is a stage too, so a runner or registry problem before the first real stage still reports.
+- **The `unreported` job** runs after every cell. A cell that failed or ran out of time before its own verdict could report (a failed checkout, the job's own time limit) is filed in the same issue, naming the step that stopped it. A `plan` job that failed opens `Harness compatibility run could not plan its cells`, which closes on the next run that plans.
+
 Work it in this order:
 
 1. **Read which stage failed.** The step summary names it, and for the smoke also the sub-stage.

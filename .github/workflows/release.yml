@@ -27,9 +27,10 @@ permissions:
 
 jobs:
   gate:
-    # `issues: write` is declared by the called workflow; `report` is off, so
-    # a release run never files issues.
+    # `issues: write` and `actions: read` are declared by the called workflow;
+    # `report` is off, so a release run never files issues.
     permissions:
+      actions: read
       contents: read
       issues: write
     uses: ./.github/workflows/harness-compat.yml

@@ -86,7 +86,7 @@ class Incomplete extends Error {}
 async function feed(platform) {
   const url = DESKTOP_FEEDS[platform]
   if (url === undefined) throw new Error(`no desktop feed for ${JSON.stringify(platform)}; known: ${Object.keys(DESKTOP_FEEDS).join(', ')}`)
-  const res = await fetch(url, { headers: { 'cache-control': 'no-cache' } })
+  const res = await fetch(url, { headers: { 'cache-control': 'no-cache' }, signal: AbortSignal.timeout(60_000) })
   if (!res.ok) throw new Error(`desktop feed ${url} answered ${res.status}`)
   const parsed = parseFeed(await res.text())
   if (!semver.valid(parsed.version)) throw new Error(`desktop feed ${url} carries no valid version`)

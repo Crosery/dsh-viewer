@@ -12,6 +12,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -92,12 +93,14 @@ jobs:
   # pinned train and the floor. These two gate a merge: in branch protection,
   # require `check`, `harness / harness@pinned` and `harness / harness@floor`.
   #
-  # `issues: write` is requested by the called workflow's verdict step and is
-  # never used here (`report` stays false); a caller cannot grant a called
-  # workflow less than it declares. A fork's pull_request token is read-only
-  # regardless.
+  # `issues: write` (the verdict) and `actions: read` (the `unreported` job) are
+  # declared by the called workflow and never used here: `report` stays false,
+  # so nothing is filed and `unreported` does not run. A caller cannot grant a
+  # called workflow less than it declares. A fork's pull_request token is
+  # read-only regardless.
   harness:
     permissions:
+      actions: read
       contents: read
       issues: write
     uses: ./.github/workflows/harness-compat.yml
@@ -109,6 +112,7 @@ jobs:
   # open PRs, and the scheduled run owns that signal.
   desktop:
     permissions:
+      actions: read
       contents: read
       issues: write
     uses: ./.github/workflows/harness-compat.yml
