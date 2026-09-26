@@ -100,14 +100,15 @@ describe('repointed cells', () => {
   const toolchain = Object.keys(pkg.devDependencies).filter((name) => !name.startsWith('@deepseek-ai/'))
 
   it('keep the toolchain the lockfile resolved, so only the harness moves', () => {
+    // Also runs inside repointed cells, whose manifest is already pinned.
+    const before = structuredClone(pkg)
     const pinned = pinToolchain(pkg, lock)
     assert.ok(toolchain.includes('typescript') && toolchain.includes('@types/node'))
     for (const name of toolchain) assert.equal(pinned.devDependencies[name], lock.packages[`node_modules/${name}`].version, name)
     for (const [name, range] of Object.entries(pkg.devDependencies as Record<string, string>)) {
       if (name.startsWith('@deepseek-ai/')) assert.equal(pinned.devDependencies[name], range, name)
     }
-    assert.notEqual(pinned, pkg)
-    assert.equal(pkg.devDependencies.typescript, '^5.9.0')
+    assert.deepEqual(pkg, before, 'the manifest it was given is left alone')
   })
 
   it('refuse a lockfile that does not resolve a devDependency', () => {
