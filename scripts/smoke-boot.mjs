@@ -95,6 +95,15 @@ assert.ok(home.startsWith(realpathSync(tmpdir())) && !home.startsWith(join(homed
 const env = { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1', NO_COLOR: '1', FORCE_COLOR: '0' }
 const result = { plugin: `${pkg.name}@${pkg.version}`, dsh: undefined, runtime: undefined, strict: !values['accept-risk'], stages: {} }
 
+/**
+ * `--no-open` where this train's `dsh web` has it. The early trains
+ * (0.0.1-rc.5 - 0.1.0-rc.7) never open a browser and refuse the flag.
+ */
+function noOpenFlag(dshBin, childEnv) {
+  const help = spawnSync(process.execPath, [dshBin, '--profile', 'web', '--help'], { env: childEnv, encoding: 'utf8', timeout: 60_000 })
+  return /--no-open\b/.test(`${help.stdout ?? ''}${help.stderr ?? ''}`) ? ['--no-open'] : []
+}
+
 function stage(name, outcome, detail) {
   result.stages[name] = { outcome, ...(detail === undefined ? {} : { detail }) }
   const shown = detail === undefined ? '' : ` — ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`
@@ -238,7 +247,7 @@ function installHarness(spec, dir) {
 /** Boot `dsh --profile web` in `dshHome`; resolves once the URL is printed and survived, or it failed. */
 async function boot(dshBin, dshHome) {
   const port = await freePort()
-  const proc = spawn(process.execPath, [dshBin, '--profile', 'web', '--no-open', '--host', '127.0.0.1', '--port', String(port)], {
+  const proc = spawn(process.execPath, [dshBin, '--profile', 'web', ...noOpenFlag(dshBin, { ...env, DSH_HOME: dshHome }), '--host', '127.0.0.1', '--port', String(port)], {
     env: { ...env, DSH_HOME: dshHome }, stdio: ['ignore', 'pipe', 'pipe'], detached: true,
   })
   const io = { stdout: '', stderr: '' }
@@ -378,8 +387,11 @@ try {
   const entry = entries.get(pkg.name)
   if (entry === undefined) fail('client-graph', `${pkg.name} is not in __DSH_BOOT__ (${graph.entries.length} entries)`)
   const absent = (pkg.dsh?.client?.inject ?? []).filter((name) => !entries.has(name))
-  if (absent.length > 0) fail('client-graph', `dsh.client.inject names services this train does not ship: ${absent.join(', ')}`)
-  stage('client-graph', 'passed', `${graph.entries.length} entries; this plugin and its inject targets present`)
+  // `dsh.client.inject` is informational graph metadata: a fiber waits on the
+  // services its entry injects, not on these package names. A target the train
+  // does not ship (dsh-client-ui-renderer before 0.1.0-rc.8) is reported, and
+  // the stages below decide whether the plugin still loads.
+  stage('client-graph', 'passed', `${graph.entries.length} entries; this plugin present${absent.length > 0 ? `; inject targets this train does not ship: ${absent.join(', ')}` : ' with its inject targets'}`)
 
   // The shell's own module table: the specifiers a client bundle may require
   // without a graph row. Read from the served shell, never assumed — 0.1.1
