@@ -9,8 +9,11 @@
 #              boot (it refuses or silently skips a plugin that fails it), and
 #              the default one npm and pnpm apply
 #   smoke      scripts/smoke-boot.mjs: the packed plugin installs through the
-#              official `dsh plugin add`, activates, and is served by a real
-#              `dsh --profile web`
+#              official `dsh plugin add`, activates, is served by a real
+#              `dsh --profile web`, and runs: headless Google Chrome (shipped
+#              on ubuntu-latest and macos-latest; CHROME_PATH overrides) opens
+#              the app, which the shell mounts only once every entry is
+#              active, and no error on the page names the plugin
 #
 # v0.1.1 passed types and tests on 0.1.7 and still could not display anything
 # in the desktop app: admission refused it. That is why all four exist.
@@ -231,7 +234,8 @@ jobs:
           path: ${{ runner.temp }}/tarball
 
       # The harness install gets 2 minutes on the peer graph, then legacy peer
-      # mode; every other command 10 minutes; the boot 4 (scripts/smoke-boot.mjs).
+      # mode; every other command 10 minutes; the boot 4; Chrome 1 to start and
+      # load the page, then 2 for the app to mount (scripts/smoke-boot.mjs).
       - name: Boot smoke
         id: smoke
         if: matrix.smoke && steps.target.outputs.incomplete != 'true' && steps.install.outputs.incomplete != 'true'
@@ -283,8 +287,9 @@ jobs:
   # runtime package set inside app.asar and its bundled pnpm. mac-arm64 is the
   # only mac feed that exists, and macos-latest is arm64.
   #
-  # Not covered here or anywhere in CI: the Electron renderer, the preload
-  # bridge and native drag-and-drop. Those need the GUI.
+  # The browser stage runs the served app in headless Google Chrome, as the
+  # Web profile does. Not covered here or anywhere in CI: the Electron
+  # renderer, the preload bridge and native drag-and-drop. Those need the GUI.
   desktop-bytes:
     if: github.event_name == 'schedule' || inputs.desktop-bytes
     name: harness@desktop-bytes

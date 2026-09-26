@@ -60,13 +60,14 @@ jobs:
 
       # A client bundle may only require specifiers the loader's module table
       # answers. Anything else throws at plugin activation, in the browser,
-      # where no CI would otherwise see it. The allowlist is exactly what this
+      # which only the harness job's smoke would otherwise see, one train at a
+      # time. The allowlist is exactly what this
       # bundle needs, all three answered by every supported shell (tables of
       # 7 to 10 specifiers, from 0.0.1-rc.5 to 0.1.7-rc.2): react, its JSX
       # runtime and react-dom, of which only createPortal may be read
       # (AGENTS.md). Anything more is a
       # decision to make there first. The harness job's boot smoke checks each
-      # train's real table.
+      # train's real table and runs the bundle in headless Chrome.
       - name: Assert client bundle purity
         run: |
           node - <<'JS'

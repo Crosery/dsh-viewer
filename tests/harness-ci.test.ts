@@ -18,7 +18,10 @@ import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { FLOOR, graphEvidence, graphFailed, npmErrorCode, pinToolchain, planCells, parseFeed, refusals, registryFailed, sweepStart, tupleHeads } from '../scripts/harness-lib.mjs'
-import { bootGraphOf, classifyDiagnostics, exportedNames, maskTokens, membersRead, moduleTableOf, publishedTooLate, unmetPeers } from '../scripts/smoke-lib.mjs'
+import {
+  blamesPlugin, bootGraphOf, bootPageState, classifyDiagnostics, exportedNames, laterHarnessVersions, maskTokens, membersRead, moduleLines,
+  moduleTableOf, modulesServedBy, refusedAsUnpublished, releaseCutoff, strayPackages, unmetPeers,
+} from '../scripts/smoke-lib.mjs'
 
 const require = createRequire(import.meta.url)
 const verdict = require('../scripts/harness-verdict.cjs')
@@ -212,10 +215,25 @@ describe('boot smoke parsing', () => {
     assert.equal(bootGraphOf('<html></html>'), undefined)
   })
 
-  it('names the package a release depends on that was published after the cutoff', () => {
-    const npm = 'npm error notarget No matching version found for @deepseek-ai/dsh-client-ui-sidebar-documentpreview@^0.1.5-rc.3 with a date before 2026/9/22 14:23:31.'
-    assert.deepEqual(publishedTooLate(npm), { name: '@deepseek-ai/dsh-client-ui-sidebar-documentpreview', version: '0.1.5-rc.3' })
-    assert.equal(publishedTooLate('npm error code ERESOLVE'), undefined)
+  it('installs a train as of its own release, not the next one', () => {
+    const times = {
+      created: '2026-08-01T00:00:00.000Z', modified: '2026-09-26T00:00:00.000Z',
+      '0.1.6-alpha.1': '2026-09-15T03:23:13.750Z', '0.1.6-alpha.2': '2026-09-17T13:52:10.201Z', '0.1.7-alpha.1': '2026-09-22T06:23:31.522Z',
+    }
+    // One second after its own @deepseek-ai/dsh: 0.1.6-alpha.2's dsh-app-boot went out at 13:39, before the cutoff the next harness gave.
+    assert.equal(releaseCutoff(times, '0.1.6-alpha.1'), '2026-09-15T03:23:14.750Z')
+    assert.deepEqual([...laterHarnessVersions(times, '0.1.6-alpha.1')].sort(), ['0.1.6-alpha.2', '0.1.7-alpha.1'])
+    assert.equal(releaseCutoff(times, '0.1.7-alpha.1'), undefined)
+    assert.throws(() => releaseCutoff(times, '0.1.4-rc.0'), /not on npm/)
+    const later = laterHarnessVersions(times, '0.1.6-alpha.1')
+    assert.deepEqual(strayPackages([['@deepseek-ai/dsh', '0.1.6-alpha.1'], ['@deepseek-ai/dsh-app-boot', '0.1.6-alpha.2'], ['@deepseek-ai/cordis', '0.1.6-alpha.2'], ['react', '0.1.7-alpha.1']], later), [['@deepseek-ai/dsh-app-boot', '0.1.6-alpha.2']])
+  })
+
+  it('names the package a train published after the cutoff, in both of npm\'s refusals', () => {
+    const late = 'npm error notarget No matching version found for @deepseek-ai/dsh-client-ui-sidebar-documentpreview@^0.1.5-rc.3 with a date before 2026/9/22 14:23:31.'
+    assert.deepEqual(refusedAsUnpublished(late), { name: '@deepseek-ai/dsh-client-ui-sidebar-documentpreview', version: '0.1.5-rc.3' })
+    assert.deepEqual(refusedAsUnpublished('npm error code ENOVERSIONS\nnpm error No versions available for @deepseek-ai/dsh-shell\n'), { name: '@deepseek-ai/dsh-shell' })
+    assert.equal(refusedAsUnpublished('npm error code ERESOLVE'), undefined)
   })
 
   it('never lets a session token through', () => {
@@ -241,6 +259,47 @@ describe('boot smoke parsing', () => {
     } finally {
       rmSync(join(modules, '..'), { recursive: true, force: true })
     }
+  })
+
+  it('tells a mounted app from the boot page of every shell', () => {
+    // #root before the shell script ran, the early React boot page, the 0.1.0-rc.8+ splash.
+    assert.equal(bootPageState({ text: '', children: 0 }), 'loading')
+    assert.equal(bootPageState({ text: 'HARNESS\nLoading plugins…', children: 1 }), 'loading')
+    assert.equal(bootPageState({ text: 'HARNESS\nFailed to load plugins\n@crosery/dsh-viewer\nweb boot: 1 entry did not activate\n@crosery/dsh-viewer: pending (waiting for service: slots)', children: 1 }), 'failed')
+    assert.equal(bootPageState({ text: 'New session\nWorkspaces', children: 1 }), 'settled')
+  })
+
+  it('reads which plugin modules a script URL serves, alone or in a combo', () => {
+    assert.deepEqual(modulesServedBy('http://127.0.0.1:9/plugins/@crosery/dsh-viewer/client.js?rev=e328d723ba0b'), ['@crosery/dsh-viewer'])
+    assert.deepEqual(modulesServedBy('http://127.0.0.1:9/plugins/??@crosery/dsh-viewer/client.js&rev=1'), ['@crosery/dsh-viewer'])
+    assert.deepEqual(modulesServedBy('http://127.0.0.1:9/plugins/??@crosery/dsh-viewer/client.js,@deepseek-ai/dsh-typert-registry/client.js&rev=1'), ['@crosery/dsh-viewer', '@deepseek-ai/dsh-typert-registry'])
+    assert.deepEqual(modulesServedBy('http://127.0.0.1:9/assets/index-Q6zc2uHV.js'), [])
+    assert.deepEqual(modulesServedBy('not a url'), [])
+    const combo = ['window.__ModuleLoader__.load({ id: "@deepseek-ai/a", factory: (require) => {', '}});', 'window.__ModuleLoader__.load({ id: "@crosery/dsh-viewer", factory: (require) => {', 'x', '}});', 'window.__ModuleLoader__.load({ id: "@deepseek-ai/b", factory: 1 });'].join('\n')
+    assert.deepEqual(moduleLines(combo, '@crosery/dsh-viewer'), [3, 5])
+    assert.deepEqual(moduleLines(combo, '@deepseek-ai/b'), [6, 6])
+    assert.equal(moduleLines(combo, '@deepseek-ai/c'), undefined)
+  })
+
+  it('holds a browser report against this plugin only when it is about this plugin', () => {
+    const name = '@crosery/dsh-viewer'
+    const own = 'http://127.0.0.1:9/plugins/@crosery/dsh-viewer/client.js?rev=1'
+    const combo = 'http://127.0.0.1:9/plugins/??@crosery/dsh-viewer/client.js,@deepseek-ai/dsh-typert-registry/client.js&rev=2'
+    const lines = (url: string) => (url === combo ? [1, 1200] as [number, number] : undefined)
+    // A frame in this plugin's own script, or in its lines of a combo.
+    assert.ok(blamesPlugin({ texts: ['TypeError: x is not a function', `    at apply (${own}:1081:28)`] }, name))
+    assert.ok(blamesPlugin({ texts: ['Error: boom', `    at ${combo}:1081:28`] }, name, lines))
+    // Another module's frame in the same combo is not this plugin's.
+    assert.ok(!blamesPlugin({ texts: ['Error: boom', `    at ${combo}:1500:3`] }, name, lines))
+    assert.ok(!blamesPlugin({ texts: ['Error: boom', `    at ${combo}:1081:28`] }, name))
+    // A request for a script that carries this plugin failing is this plugin failing to load.
+    assert.ok(blamesPlugin({ texts: [combo, 'net::ERR_CONNECTION_RESET'], request: true }, name))
+    assert.ok(!blamesPlugin({ texts: ['http://127.0.0.1:9/plugins/??@deepseek-ai/dsh-typert-registry/client.js&rev=2'], request: true }, name))
+    // The package named in the text: the boot page, the plugin's own warnings.
+    assert.ok(blamesPlugin({ texts: ['HARNESS\nFailed to load plugins\n@crosery/dsh-viewer\nweb boot: 1 entry did not activate'] }, name))
+    assert.ok(blamesPlugin({ texts: ['[dsh-viewer] could not register into "tool.call.toolview"; the rest of the viewer is unaffected Error: refused', undefined] }, name))
+    assert.ok(blamesPlugin({ texts: ['cannot load %40crosery%2Fdsh-viewer'] }, name))
+    assert.ok(!blamesPlugin({ texts: ['Failed to load resource: the server responded with a status of 404 (Not Found)', 'http://127.0.0.1:9/favicon.ico:1:1'] }, name))
   })
 
   it('finds the seed members a bundle reads and the names a module exports', () => {

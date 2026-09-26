@@ -51,7 +51,7 @@ Four of those assert things a normal test run cannot:
 - **Client bundle purity.** `lib/client.js` may only `require` specifiers the oldest supported shell's module table answers. Anything else throws when the plugin activates in a browser; no test would ever see it.
 - **Packed tarball contents.** Without `cordis.patch.yml` in the package, dsh installs the plugin and activates no layer: present, and doing nothing.
 - **Peer admission.** From 0.1.7 the harness refuses to install or load a plugin whose peer ranges do not admit it. v0.1.1 passed every other check and still showed nothing in the 0.1.7 desktop app.
-- **Boot smoke.** The packed plugin is installed with `dsh plugin add` and no exemption, the harness boots, the startup audit names nothing of ours, and the served browser bundle evaluates against that train's real module table.
+- **Boot smoke.** The packed plugin is installed with `dsh plugin add` and no exemption, the harness boots, the startup audit names nothing of ours, the served browser bundle evaluates against that train's real module table, and headless Chrome mounts the app with the plugin running and no error naming it.
 
 To run the harness stages locally before pushing, see [harness-compatibility.md](harness-compatibility.md#what-ci-checks-and-when).
 

@@ -36,7 +36,7 @@ try {
   if (failed.length > 0) throw new Error(`these cells did not pass a strict smoke: ${failed.join(', ')}`)
 
   console.log('### Verified harness versions\n')
-  console.log(`Boot smoke of this release's tarball, \`dsh-viewer.tgz\` (sha256 \`${sha256}\`): installed with \`dsh plugin add\` (no exemption), activated and served.\n`)
+  console.log(`Boot smoke of this release's tarball, \`dsh-viewer.tgz\` (sha256 \`${sha256}\`): installed with \`dsh plugin add\` (no exemption), activated, served, and run in headless Chrome, where the app mounted with it and no error named it.\n`)
   console.log('| cell | dsh | smoke |\n| --- | --- | --- |')
   for (const [cell, r] of rows) console.log(`| ${cell} | ${r.dsh ?? '?'} | ${r.outcome} |`)
   console.log('\nEvery published harness version the gate swept either passed typecheck, tests and peer admission or is published incomplete upstream; the gate run lists each one.')

@@ -236,7 +236,7 @@ v0.1.1 时在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet
 
 peer 范围恰好接纳上面这些支持，每个元组一组比较器，无论按 npm 的 semver 规则，还是按 harness 从 0.1.7 起自己采用的「包含预发布」规则。`0.1.0-rc.8` 之前的版本前端更老，没有 `dsh-client-ui-renderer`；本插件只需要其中的 `slots` 和 `locale` 两个服务，每个版本都有。`0.1.8` 及以后等 CI 验证过才接纳。
 
-CI 负责让这份声明保持真实。每个 pull request 都会在钉住的版本、`0.1.1-rc.2` 最低线和桌面版当天分发的版本上，跑类型检查、测试、peer 接纳检查，以及打包后插件的真实启动。每天的任务对桌面版和 npm 的 `latest`、`next`、`alpha` 重复这些检查，并在 macOS 上对桌面版压缩包本身再跑一次冒烟。每周的任务扫描每一个已发布的 harness 版本，并启动其中每个能装上的版本，所以新版本不需要任何人手动添加就会被测到。失败会开一个 `upstream-drift` issue，第一次全绿的运行会把它关掉。发版也以同样的检查为门禁。详见 [docs/harness-compatibility.zh.md](docs/harness-compatibility.zh.md)。
+CI 负责让这份声明保持真实。每个 pull request 都会在钉住的版本、`0.1.1-rc.2` 最低线和桌面版当天分发的版本上，跑类型检查、测试、peer 接纳检查，以及打包后插件的真实启动，并在无头 Chrome 里把它跑起来。每天的任务对桌面版和 npm 的 `latest`、`next`、`alpha` 重复这些检查，并在 macOS 上对桌面版压缩包本身再跑一次冒烟。每周的任务扫描每一个已发布的 harness 版本，在其中每个能装上的版本上启动并运行本插件，所以新版本不需要任何人手动添加就会被测到。失败会开一个 `upstream-drift` issue，第一次全绿的运行会把它关掉。发版也以同样的检查为门禁。详见 [docs/harness-compatibility.zh.md](docs/harness-compatibility.zh.md)。
 
 ## 已知限制
 

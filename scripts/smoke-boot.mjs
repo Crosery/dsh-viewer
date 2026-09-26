@@ -17,9 +17,13 @@
  * - a browser half that is not in `window.__DSH_BOOT__`, is not served, or
  *   requires a specifier the shell's module table cannot answer, or reads a
  *   named export a harness seed module no longer has.
+ * - a browser half that passes all of that in a `vm` and still breaks in a
+ *   browser: the shell never mounts the app, or the plugin throws once it
+ *   runs. `vm` evaluates the factory against inert modules; only a real page
+ *   runs `apply` against the shell's own services.
  *
  * Stages, in order: harness → pnpm → install → boot → host-activation →
- * client-graph → client-load → client-exports.
+ * client-graph → client-load → client-exports → client-boot.
  *
  * Everything runs in a throwaway DSH_HOME under the OS temp directory; the
  * script refuses any other home, so running it on a workstation cannot touch a
@@ -32,18 +36,25 @@
  *                                                              # desktop app's Contents/Resources/app.asar/dsh,
  *                                                              # run with that app's binary and ELECTRON_RUN_AS_NODE=1
  *   [--graph released|today]  with --dsh: resolve the harness's floating
- *                           dependencies as of its release — before the next
- *                           @deepseek-ai/dsh was published (default) — or as
- *                           of today. The cordis family floats under every
+ *                           dependencies as of its release — just after its
+ *                           own @deepseek-ai/dsh went out, with no package of a
+ *                           later train in the tree (default) — or as of
+ *                           today. The cordis family floats under every
  *                           train, and its 2026-09-22 releases broke a fresh
  *                           `npm i @deepseek-ai/dsh@0.1.1-rc.2`, with or
- *                           without any plugin; `released` keeps a train's
- *                           smoke about the plugin, not about that drift.
+ *                           without any plugin; and the harness's own caret
+ *                           ranges take the next prerelease of the same tuple.
+ *                           `released` keeps a train's smoke about the plugin,
+ *                           not about that drift.
  *   [--tarball <path>]      install this tarball instead of packing the checkout
  *   [--pnpm-version <v>]    pnpm `dsh plugin` drives (default: the desktop runtime's, else 11.7.0)
  *   [--timeout-ms <n>]      how long `dsh web` may take to announce its URL (default 240 s)
  *   [--install-timeout-ms <n>]  how long the plain `npm install` of the harness may
  *                           take before legacy peer mode is used instead (default 120 s)
+ *   [--browser <path>]      the Chrome client-boot drives (default: $CHROME_PATH, else
+ *                           the installed Google Chrome — GitHub's ubuntu-latest and
+ *                           macos-latest images ship one). Always headless, always
+ *                           in a throwaway profile under the smoke's temp directory.
  *   [--keep]
  *   [--accept-risk]         diagnostic only: grant the exact-version exemption
  *                           first, to separate "peer range too narrow" from
@@ -65,7 +76,10 @@ import { delimiter, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import vm from 'node:vm'
-import { bootGraphOf, classifyDiagnostics, exportedNames, maskTokens as mask, membersRead, moduleTableOf, publishedTooLate, unmetPeers } from './smoke-lib.mjs'
+import {
+  blamesPlugin, bootGraphOf, bootPageState, classifyDiagnostics, exportedNames, installedPackages, laterHarnessVersions, maskTokens as mask,
+  membersRead, moduleLines, moduleTableOf, modulesServedBy, refusedAsUnpublished, releaseCutoff, strayPackages, unmetPeers,
+} from './smoke-lib.mjs'
 
 const { values } = parseArgs({
   options: {
@@ -77,6 +91,7 @@ const { values } = parseArgs({
     'accept-risk': { type: 'boolean', default: false },
     'timeout-ms': { type: 'string', default: '240000' },
     'install-timeout-ms': { type: 'string', default: '120000' },
+    browser: { type: 'string' },
     keep: { type: 'boolean', default: false },
   },
 })
@@ -149,39 +164,29 @@ function packageDir(from, name) {
   return (lookup.resolve.paths(name) ?? []).map((base) => join(base, name)).find((dir) => existsSync(join(dir, 'package.json')))
 }
 
-/**
- * When `version` stopped being the newest `@deepseek-ai/dsh` on npm: the
- * publish time of the next release, or `undefined` for the newest one.
- */
-function supersededAt(version) {
-  const times = JSON.parse(run('npm', ['view', '@deepseek-ai/dsh', 'time', '--json']).stdout)
-  const own = times[version]
-  if (own === undefined) fail('harness', `@deepseek-ai/dsh@${version} is not on npm`)
-  const later = Object.entries(times)
-    .filter(([key, at]) => key !== 'created' && key !== 'modified' && at > own)
-    .map(([, at]) => at)
-    .sort()
-  return later[0]
-}
-
-/** When one version of a package was published, or `undefined`. */
-function publishedAt(name, version) {
-  const r = run('npm', ['view', name, 'time', '--json'], { allowFailure: true })
-  try { return JSON.parse(r.stdout)[version] } catch { return undefined }
+/** When each `@deepseek-ai/dsh` version was published, as npm records it. */
+function harnessTimes() {
+  return JSON.parse(run('npm', ['view', '@deepseek-ai/dsh', 'time', '--json']).stdout)
 }
 
 /**
- * A `--before` later than `before` when npm refused a package the train's
- * graph needs as not yet published then. Upstream sometimes publishes a
- * package after the next @deepseek-ai/dsh (0.1.5-rc.3's
- * sidebar-documentpreview came 6 h later): the release became installable
- * only then.
+ * A `--before` later than `before` when npm refused one of the train's own
+ * packages as not yet published then ({@link refusedAsUnpublished}): a train
+ * can be published out of order — `@deepseek-ai/dsh@0.1.5-rc.3` went out
+ * hours before its `dsh-client-ui-sidebar-documentpreview@0.1.5-rc.3`, and
+ * 0.0.1-rc.5's `dsh-shell` 96 s after its `@deepseek-ai/dsh`. The cutoff moves
+ * to that version's publication; when npm names no version, to the package's
+ * version at this train, or else its first one.
  */
 function laterCutoff(output, before) {
-  const late = publishedTooLate(output)
-  if (before === undefined || late === undefined) return undefined
-  const at = publishedAt(late.name, late.version)
-  return at !== undefined && at >= before ? new Date(Date.parse(at) + 1000).toISOString() : undefined
+  const refused = refusedAsUnpublished(output)
+  if (before === undefined || refused === undefined) return undefined
+  const r = run('npm', ['view', refused.name, 'time', '--json'], { allowFailure: true })
+  let times = {}
+  try { times = JSON.parse(r.stdout) } catch {}
+  const at = times[refused.version ?? (times[values.dsh] === undefined ? 'created' : values.dsh)]
+  if (typeof at !== 'string' || at <= before) return undefined
+  return new Date(Date.parse(at) + 1000).toISOString()
 }
 
 /** An empty project to install the harness into. */
@@ -194,63 +199,73 @@ function freshProject(dir) {
 /**
  * Install `spec` into `dir` the way a user gets it, and say how.
  *
- * As released (`--graph released`, the default): `--before` the next harness
- * publication, moved later when a package its graph needs went out after it —
- * one of the train's own (0.1.5-rc.3), or the peer of a later prerelease its
- * caret ranges already reach (0.1.0-rc.3: its window ends while 0.1.0-rc.6 is
- * still being published, and the rc.6 packages it reaches peer on a
- * `dsh-timeout@0.1.0-rc.6` that went out six minutes after
- * `@deepseek-ai/dsh@0.1.0-rc.6`). The
- * plain peer graph first; early prereleases carry caret peers that pull a
- * later prerelease of the same tuple, and npm then either answers ERESOLVE or
- * — 0.1.1-rc.2 under npm 11 — burns minutes of CPU before it settles (one CI
- * floor cell took 653 s). @deepseek-ai/dsh lists every package it composes as
- * a dependency, so legacy peer mode plus the peers it leaves unmet, each at
- * its declared range, is the same harness.
+ * As released (`--graph released`, the default): `--before` one second after
+ * the train's own `@deepseek-ai/dsh` went out ({@link releaseCutoff}), moved
+ * later whenever npm refuses one of the train's own packages as not yet
+ * published then; the installed tree must then hold no package of a later
+ * harness train. The plain peer graph first; early prereleases carry caret
+ * peers, and npm then either answers ERESOLVE or — 0.1.1-rc.2 under npm 11 —
+ * burns minutes of CPU before it settles (one CI floor cell took 653 s).
+ * @deepseek-ai/dsh lists every package it composes as a dependency, so legacy
+ * peer mode plus the peers it leaves unmet, each at its declared range, is the
+ * same harness.
  */
 function installHarness(spec, dir) {
   let before
-  if (values.graph === 'released') before = supersededAt(values.dsh)
-  else if (values.graph !== 'today') fail('harness', `--graph must be released or today, not ${values.graph}`)
+  let later = new Set()
+  if (values.graph === 'released') {
+    const times = harnessTimes()
+    if (times[values.dsh] === undefined) fail('harness', `@deepseek-ai/dsh@${values.dsh} is not on npm`)
+    before = releaseCutoff(times, values.dsh)
+    later = laterHarnessVersions(times, values.dsh)
+  } else if (values.graph !== 'today') fail('harness', `--graph must be released or today, not ${values.graph}`)
   const common = () => ['install', '--prefix', dir, '--no-audit', '--no-fund', ...(before === undefined ? [] : ['--before', before])]
   const describe = (how) => `npm install${before === undefined ? '' : ` --before ${before} (as released)`}${how}`
   const limit = Number(values['install-timeout-ms'])
-  const failed = (what, r) => `${what} ${r.status === null ? `was killed (${r.signal ?? r.error?.code})` : `exited ${r.status}`}: ${mask(`${r.stdout}${r.stderr}`.slice(-2000))}`
-
-  attempts: for (let attempt = 0; attempt < 8; attempt += 1) {
-    freshProject(dir)
-    const first = run('npm', [...common(), spec], { allowFailure: true, timeout: limit })
-    if (first.status === 0) return describe('')
-    const later = laterCutoff(`${first.stdout}${first.stderr}`, before)
-    if (later !== undefined) { before = later; continue }
-    const settled = first.error?.code !== 'ETIMEDOUT' && first.signal === null
-    if (settled && !/ERESOLVE/.test(`${first.stdout}${first.stderr}`)) fail('harness', failed(`npm install ${spec}`, first))
-
-    freshProject(dir)
-    const legacy = run('npm', [...common(), '--legacy-peer-deps', spec], { allowFailure: true })
-    if (legacy.status !== 0) {
-      // A plain install that timed out never got as far as naming a late package.
-      const again = laterCutoff(`${legacy.stdout}${legacy.stderr}`, before)
-      if (again !== undefined) { before = again; continue }
-      fail('harness', failed(`npm install --legacy-peer-deps ${spec}`, legacy))
-    }
-    let added = 0
-    for (let round = 0; round < 8; round += 1) {
-      const unmet = unmetPeers(join(dir, 'node_modules'))
-      if (unmet.size === 0) break
-      added += unmet.size
-      const peers = run('npm', [...common(), '--legacy-peer-deps', ...[...unmet].map(([name, range]) => `${name}@${range}`)], { allowFailure: true })
-      if (peers.status !== 0) {
-        const again = laterCutoff(`${peers.stdout}${peers.stderr}`, before)
-        if (again !== undefined) { before = again; continue attempts }
-        fail('harness', failed(`npm install --legacy-peer-deps ${[...unmet.keys()].join(' ')}`, peers))
-      }
-    }
-    const left = unmetPeers(join(dir, 'node_modules'))
-    if (left.size > 0) fail('harness', `peers still unmet after legacy install: ${[...left.keys()].join(', ')}`)
-    return describe(` --legacy-peer-deps + ${added} unmet peers at their ranges (the peer graph ${settled ? 'hit ERESOLVE' : `did not settle within ${Math.round(limit / 1000)} s`})`)
+  /** One install; npm refusing one of the train's own packages as unpublished moves the cutoff instead of failing. */
+  const install = (argv, options) => {
+    const r = run('npm', argv, { ...options, allowFailure: true })
+    if (r.status === 0) return { ok: true }
+    const output = `${r.stdout}${r.stderr}`
+    const moved = laterCutoff(output, before)
+    if (moved !== undefined) { before = moved; return { ok: false, retry: true } }
+    const how = r.status === null ? `was killed (${r.signal ?? r.error?.code})` : `exited ${r.status}`
+    return { ok: false, retry: false, output, how, settled: r.error?.code !== 'ETIMEDOUT' && r.signal === null }
   }
-  fail('harness', `npm install ${spec} kept refusing packages its graph needs as unpublished before ${before}`)
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    freshProject(dir)
+    const first = install([...common(), spec], { timeout: limit })
+    if (first.retry) continue
+    let how = ''
+    if (!first.ok) {
+      if (first.settled && !/ERESOLVE/.test(first.output)) fail('harness', `npm install ${spec} ${first.how}: ${mask(first.output.slice(-2000))}`)
+      freshProject(dir)
+      const legacy = install([...common(), '--legacy-peer-deps', spec])
+      if (legacy.retry) continue
+      if (!legacy.ok) fail('harness', `npm install --legacy-peer-deps ${spec} ${legacy.how}: ${mask(legacy.output.slice(-2000))}`)
+      let added = 0
+      let moved = false
+      for (let round = 0; round < 8; round += 1) {
+        const unmet = unmetPeers(join(dir, 'node_modules'))
+        if (unmet.size === 0) break
+        added += unmet.size
+        const peers = install([...common(), '--legacy-peer-deps', ...[...unmet].map(([name, range]) => `${name}@${range}`)])
+        if (peers.retry) { moved = true; break }
+        if (!peers.ok) fail('harness', `npm install --legacy-peer-deps ${[...unmet.keys()].join(' ')} ${peers.how}: ${mask(peers.output.slice(-2000))}`)
+      }
+      if (moved) continue
+      const left = unmetPeers(join(dir, 'node_modules'))
+      if (left.size > 0) fail('harness', `peers still unmet after legacy install: ${[...left.keys()].join(', ')}`)
+      how = ` --legacy-peer-deps + ${added} unmet peers at their ranges (the peer graph ${first.settled ? 'hit ERESOLVE' : `did not settle within ${Math.round(limit / 1000)} s`})`
+    }
+    const strays = strayPackages(installedPackages(join(dir, 'node_modules')).map(({ manifest }) => [manifest.name, manifest.version]), later)
+    if (strays.length > 0) {
+      fail('harness', `the graph installed with --before ${before} is not ${spec} as released: ${strays.length} package(s) of later harness trains, e.g. ${strays.slice(0, 5).map(([n, v]) => `${n}@${v}`).join(', ')}`)
+    }
+    return describe(how)
+  }
+  fail('harness', `npm install ${spec} kept refusing its own packages as unpublished before ${before}`)
 }
 
 /** Boot `dsh --profile web` in `dshHome`; resolves once the URL is printed and survived, or it failed. */
@@ -277,6 +292,113 @@ async function boot(dshBin, dshHome) {
   // the process on an entry that did not activate. Give it time to.
   if (outcome === 'url') outcome = await Promise.race([exited.then(() => 'exit after url'), sleep(5000, 'url')])
   return { proc, port, outcome, io }
+}
+
+/** How long Chrome may take to start and the page to load, and then the app to mount. */
+const PAGE_TIMEOUT_MS = 60_000
+const MOUNT_TIMEOUT_MS = 120_000
+/** After the app mounted: how long a late error from this plugin gets to surface. */
+const QUIET_MS = 5000
+
+/**
+ * The browser half in a real browser. Headless Chrome, in a throwaway profile
+ * under the smoke's temp directory, opens the tokenized URL; the shell must
+ * mount the app — which every shell does only once each entry of its boot
+ * graph is active — having loaded this plugin's module, and nothing on the
+ * page may report an error, a failed request or an HTTP error about this
+ * plugin, nor may the plugin warn that a slot registration was refused. What
+ * is about something else is the train's own and is reported, not held
+ * against the plugin.
+ */
+async function clientBoot(url) {
+  // page.evaluate, response bodies and closing have no timeout of their own: a
+  // hung renderer must fail this stage, not run out the job's clock.
+  const bounded = (promise, what) => Promise.race([promise, new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`${what} did not answer within ${PAGE_TIMEOUT_MS / 1000} s`)), PAGE_TIMEOUT_MS).unref()
+  })])
+  let chromium
+  try {
+    ({ chromium } = await import('playwright-core'))
+  } catch (error) {
+    fail('client-boot', `playwright-core did not load (npm ci installs it): ${String(error?.message ?? error).split('\n')[0]}`)
+  }
+  const profile = join(work, 'browser-profile')
+  assert.ok(profile.startsWith(realpathSync(tmpdir())), 'refusing a browser profile outside the temp directory')
+  const executablePath = values.browser ?? process.env.CHROME_PATH
+  let context
+  try {
+    context = await chromium.launchPersistentContext(profile, {
+      ...(executablePath === undefined ? { channel: 'chrome' } : { executablePath }),
+      headless: true,
+      locale: 'en-US',
+      timeout: PAGE_TIMEOUT_MS,
+    })
+  } catch (error) {
+    fail('client-boot', `could not start ${executablePath ?? 'the installed Google Chrome'} (set CHROME_PATH or --browser): ${mask(String(error?.message ?? error)).split('\n')[0]}`)
+  }
+  try {
+    const page = context.pages()[0] ?? await context.newPage()
+    const reports = []
+    const moduleStatuses = []
+    // This plugin's lines in each combo script that carried it with others (0.1.7).
+    const combos = new Map()
+    page.on('pageerror', (error) => reports.push({ kind: 'uncaught error', texts: [error.message, error.stack] }))
+    page.on('console', (message) => {
+      const type = message.type()
+      if (type !== 'error' && type !== 'warning') return
+      const at = message.location()
+      reports.push({ kind: `console ${type}`, texts: [message.text(), at?.url ? `${at.url}:${at.lineNumber + 1}:${at.columnNumber + 1}` : undefined] })
+    })
+    page.on('requestfailed', (request) => reports.push({ kind: 'failed request', request: true, texts: [request.url(), request.failure()?.errorText] }))
+    page.on('response', (response) => {
+      const served = modulesServedBy(response.url())
+      if (served.includes(pkg.name)) {
+        moduleStatuses.push(response.status())
+        if (served.length > 1 && response.ok()) combos.set(response.url(), response.text().then((script) => moduleLines(script, pkg.name), () => undefined))
+      }
+      if (response.status() >= 400) reports.push({ kind: `HTTP ${response.status()}`, request: true, texts: [response.url()] })
+    })
+    const linesIn = new Map()
+    const judge = async () => {
+      for (const [combo, lines] of combos) linesIn.set(combo, await bounded(lines, 'a combo script body'))
+      const blamed = (r) => blamesPlugin(r, pkg.name, (combo) => linesIn.get(combo))
+      // Only this plugin's own warnings count; everyone else's are noise.
+      return { ours: reports.filter(blamed), others: reports.filter((r) => !blamed(r) && r.kind !== 'console warning') }
+    }
+    const describe = (list) => list.slice(0, 12).map((r) => `${r.kind}: ${mask(r.texts.filter(Boolean).join(' @ ')).slice(0, 600)}`)
+
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_TIMEOUT_MS })
+    const read = () => bounded(page.evaluate(() => {
+      const root = document.getElementById('root')
+      return { text: root?.innerText ?? '', children: root?.childElementCount ?? 0, title: document.title, body: document.body?.innerText ?? '' }
+    }), 'the page')
+    const deadline = Date.now() + MOUNT_TIMEOUT_MS
+    let root = await read()
+    while (bootPageState(root) === 'loading' && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 500))
+      root = await read()
+    }
+    const state = bootPageState(root)
+    const shown = mask(root.text || root.body).slice(0, 1500)
+    if (state === 'failed') {
+      const { ours } = await judge()
+      fail('client-boot', { page: shown, namesThisPlugin: blamesPlugin({ texts: [root.text] }, pkg.name), errors: describe(ours.length > 0 ? ours : reports) })
+    }
+    if (state === 'loading') fail('client-boot', { reason: `the app did not mount within ${MOUNT_TIMEOUT_MS / 1000} s`, title: root.title, page: shown, errors: describe(reports) })
+    if (!moduleStatuses.includes(200)) fail('client-boot', moduleStatuses.length === 0 ? 'the page never requested this plugin\'s module' : `the page got ${moduleStatuses.join(', ')} for this plugin's module`)
+
+    await page.waitForTimeout(QUIET_MS)
+    const { ours, others } = await judge()
+    if (ours.length > 0) fail('client-boot', { reason: 'the app mounted, then the page reported problems of this plugin', errors: describe(ours) })
+    if (others.length > 0) console.log(`note: the page reported ${others.length} problem(s) about neither this plugin nor its module:\n  ${describe(others).join('\n  ')}`)
+    const chrome = /Chrome\/([\d.]+)/.exec(await bounded(page.evaluate(() => navigator.userAgent), 'the page'))?.[1]
+    stage('client-boot', 'passed', `headless Chrome ${chrome ?? '?'} mounted the app with this plugin's module loaded (${combos.size > 0 ? 'in a combo script' : 'its own script'}); nothing on the page is about it${others.length > 0 ? `; ${others.length} other problem(s), see log` : ''}`)
+  } catch (error) {
+    if (error instanceof StageFailed) throw error
+    fail('client-boot', mask(String(error?.message ?? error)).slice(0, 1500))
+  } finally {
+    await bounded(context.close(), 'Chrome').catch(() => {})
+  }
 }
 
 async function stop(proc) {
@@ -475,6 +597,9 @@ try {
   }
   if (Object.keys(missingMembers).length > 0) fail('client-exports', missingMembers)
   stage('client-exports', 'passed', unchecked.length > 0 ? `not installed with this harness, unchecked: ${unchecked.join(', ')}` : readsSeeds ? 'every seed member read is exported' : 'reads no named member of a harness seed module')
+
+  // 8. The same bundle in a real browser, against the shell's own services.
+  await clientBoot(url)
 } catch (error) {
   if (!(error instanceof StageFailed)) stage('smoke', 'failed', mask(String(error?.message ?? error)).slice(0, 2000))
 } finally {
