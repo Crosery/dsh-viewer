@@ -4,6 +4,9 @@
  * with no `node_modules`.
  */
 
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+
 /** A `dsh web` URL carries a one-time session token; nothing this repo prints may. */
 export function maskTokens(text) {
   return String(text).replace(/token=[\w.~%-]+/g, 'token=***')
@@ -83,4 +86,42 @@ export function publishedTooLate(npmOutput) {
 export function bootGraphOf(html) {
   const wire = /<script>(?:globalThis\["__DSH_BOOT__"\]|window\.__DSH_BOOT__) = (.*?)<\/script>/s.exec(html)
   return wire === null ? undefined : JSON.parse(wire[1])
+}
+
+/**
+ * Required peers that no installed package under `modules` can resolve, as
+ * `name → the first range declared for it`. After a `--legacy-peer-deps`
+ * install — which installs no peers at all — these are what npm's peer graph
+ * would have added; installing each at its declared range completes the tree.
+ */
+export function unmetPeers(modules) {
+  const installed = []
+  const walk = (dir) => {
+    if (!existsSync(dir)) return
+    for (const entry of readdirSync(dir)) {
+      if (entry.startsWith('.')) continue
+      const path = join(dir, entry)
+      if (entry.startsWith('@')) { walk(path); continue }
+      if (!existsSync(join(path, 'package.json'))) continue
+      installed.push(path)
+      walk(join(path, 'node_modules'))
+    }
+  }
+  walk(modules)
+  const unmet = new Map()
+  for (const path of installed) {
+    const manifest = JSON.parse(readFileSync(join(path, 'package.json'), 'utf8'))
+    for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
+      if (manifest.peerDependenciesMeta?.[name]?.optional || unmet.has(name)) continue
+      // Node resolution: this package's own node_modules, then each ancestor's.
+      let dir = path
+      let found = false
+      while (dir.startsWith(modules)) {
+        if (existsSync(join(dir, 'node_modules', name, 'package.json'))) { found = true; break }
+        dir = dirname(dir)
+      }
+      if (!found && !existsSync(join(modules, name, 'package.json'))) unmet.set(name, range)
+    }
+  }
+  return unmet
 }

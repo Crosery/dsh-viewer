@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { createRequire } from 'node:module'
@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { FLOOR, graphFailed, npmErrorCode, planCells, parseFeed, refusals, registryFailed, sweepStart, tupleHeads } from '../scripts/harness-lib.mjs'
-import { bootGraphOf, classifyDiagnostics, exportedNames, maskTokens, membersRead, moduleTableOf, publishedTooLate } from '../scripts/smoke-lib.mjs'
+import { bootGraphOf, classifyDiagnostics, exportedNames, maskTokens, membersRead, moduleTableOf, publishedTooLate, unmetPeers } from '../scripts/smoke-lib.mjs'
 
 const require = createRequire(import.meta.url)
 const verdict = require('../scripts/harness-verdict.cjs')
@@ -160,6 +160,27 @@ describe('boot smoke parsing', () => {
 
   it('never lets a session token through', () => {
     assert.equal(maskTokens('dsh web: http://127.0.0.1:8/?token=Zx-9_a.b~c%2F'), 'dsh web: http://127.0.0.1:8/?token=***')
+  })
+
+  it('finds the peers a legacy install left unmet, the way Node would resolve them', () => {
+    const modules = join(mkdtempSync(join(tmpdir(), 'dsh-viewer-peers-')), 'node_modules')
+    const put = (dir: string, manifest: object) => {
+      mkdirSync(join(modules, dir), { recursive: true })
+      writeFileSync(join(modules, dir, 'package.json'), JSON.stringify(manifest))
+    }
+    try {
+      put('@deepseek-ai/dsh', { name: '@deepseek-ai/dsh', peerDependencies: { react: '^18.3.1', '@deepseek-ai/cordis': '^4.0.0', 'left-out': '^2.0.0' }, peerDependenciesMeta: { 'left-out': { optional: true } } })
+      put('react', { name: 'react' })
+      put('@deepseek-ai/dsh-tools', { name: '@deepseek-ai/dsh-tools', peerDependencies: { '@deepseek-ai/dsh-scope': '0.1.1-rc.2', '@deepseek-ai/cordis': '^4.0.2' } })
+      put('@deepseek-ai/dsh-tools/node_modules/nested', { name: 'nested', peerDependencies: { own: '1.x', react: '*' } })
+      put('@deepseek-ai/dsh-tools/node_modules/own', { name: 'own' })
+      assert.deepEqual([...unmetPeers(modules)].sort(), [['@deepseek-ai/cordis', '^4.0.0'], ['@deepseek-ai/dsh-scope', '0.1.1-rc.2']])
+      put('@deepseek-ai/cordis', { name: '@deepseek-ai/cordis' })
+      put('@deepseek-ai/dsh-scope', { name: '@deepseek-ai/dsh-scope' })
+      assert.equal(unmetPeers(modules).size, 0)
+    } finally {
+      rmSync(join(modules, '..'), { recursive: true, force: true })
+    }
   })
 
   it('finds the seed members a bundle reads and the names a module exports', () => {

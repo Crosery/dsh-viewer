@@ -93,7 +93,7 @@ node-semver 只在范围里**存在某个比较器与该预发布版本的 `majo
 - **不完整是中性结果。** 早于本插件所需某个包的版本、npm 上还没有的版本、或者单独安装 `@deepseek-ai/dsh` 都失败的版本，既不开 issue 也不关 issue。类型、测试和冒烟在这种版本上不跑；`admission` 照跑，因为它不读任何包，范围拒绝的版本即使 npm 上还不全也算漂移。
 - **只有 npm 明确回答「没有」才算不完整。** registry 没有应答（连接被拒、超时、5xx）时该格失败；npm 一个 `@deepseek-ai/dsh` 版本都列不出来时也一样。`pinned` 和 `floor` 永远不会是不完整：它们是本插件声明支持的版本，那里缺包就是失败。
 - **新版本自己会出现。** 扫描在运行时读取版本列表。落在范围尚未覆盖的元组上的版本（比如 `0.1.8-alpha.1`）会以 `admission` 失败的形式出现，这就是去验证它的提示。
-- **冒烟按发布时的样子安装 harness。** `smoke-boot.mjs --dsh <v>` 会带上 `npm install --before <下一个 @deepseek-ai/dsh 发布的时刻>`；只有该版本自己的某个包发布得比这还晚时才把时刻往后挪（`0.1.5-rc.3` 的 `dsh-client-ui-sidebar-documentpreview` 就发布在 `0.1.7-alpha.1` 之后）。cordis 一族的依赖在每个版本下面都是浮动的，它们 2026-09-22 的发布让全新执行的 `npm i @deepseek-ai/dsh@0.1.1-rc.2` 坏掉了：不装任何插件也启动不了（`user patch-layer watching requires the Cordis HMR service`）。想看今天全新安装得到什么，加 `--graph today`。启动失败时，冒烟会用同一个 harness 不装插件再启动一次，并报告是哪一种情况。
+- **冒烟按发布时的样子安装 harness。** `smoke-boot.mjs --dsh <v>` 会带上 `npm install --before <下一个 @deepseek-ai/dsh 发布的时刻>`；只有该版本自己的某个包发布得比这还晚时才把时刻往后挪（`0.1.5-rc.3` 的 `dsh-client-ui-sidebar-documentpreview` 就发布在 `0.1.7-alpha.1` 之后）。cordis 一族的依赖在每个版本下面都是浮动的，它们 2026-09-22 的发布让全新执行的 `npm i @deepseek-ai/dsh@0.1.1-rc.2` 坏掉了：不装任何插件也启动不了（`user patch-layer watching requires the Cordis HMR service`）。想看今天全新安装得到什么，加 `--graph today`。如果 npm 的 peer 图报 `ERESOLVE`，或 120 秒内没有算完（`--install-timeout-ms`；`0.1.1-rc.2` 会让 npm 11 在上面烧几分钟 CPU，CI 的一个 floor 格用了 653 秒），冒烟改用 legacy peer 模式安装，再把没满足的 peer 按各自声明的范围补装上，得到的是同一个 harness。启动失败时，冒烟会用同一个 harness 不装插件再启动一次，并报告是哪一种情况。
 - **没有任何阶段覆盖**：Electron 渲染进程、桌面版 preload 桥接和原生拖放。这些需要 GUI，靠人工验收（[acceptance.zh.md](acceptance.zh.md)）。
 
 本地可以单独跑任何一段：

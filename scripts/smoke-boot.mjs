@@ -41,7 +41,10 @@
  *                           smoke about the plugin, not about that drift.
  *   [--tarball <path>]      install this tarball instead of packing the checkout
  *   [--pnpm-version <v>]    pnpm `dsh plugin` drives (default: the desktop runtime's, else 11.7.0)
- *   [--timeout-ms <n>] [--keep]
+ *   [--timeout-ms <n>]      how long `dsh web` may take to announce its URL (default 240 s)
+ *   [--install-timeout-ms <n>]  how long the plain `npm install` of the harness may
+ *                           take before legacy peer mode is used instead (default 120 s)
+ *   [--keep]
  *   [--accept-risk]         diagnostic only: grant the exact-version exemption
  *                           first, to separate "peer range too narrow" from
  *                           "code broken". Never a gate.
@@ -52,7 +55,7 @@
 
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
@@ -60,7 +63,7 @@ import { delimiter, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import vm from 'node:vm'
-import { bootGraphOf, classifyDiagnostics, exportedNames, maskTokens as mask, membersRead, moduleTableOf, publishedTooLate } from './smoke-lib.mjs'
+import { bootGraphOf, classifyDiagnostics, exportedNames, maskTokens as mask, membersRead, moduleTableOf, publishedTooLate, unmetPeers } from './smoke-lib.mjs'
 
 const { values } = parseArgs({
   options: {
@@ -71,6 +74,7 @@ const { values } = parseArgs({
     'pnpm-version': { type: 'string' },
     'accept-risk': { type: 'boolean', default: false },
     'timeout-ms': { type: 'string', default: '240000' },
+    'install-timeout-ms': { type: 'string', default: '120000' },
     keep: { type: 'boolean', default: false },
   },
 })
@@ -101,8 +105,11 @@ function fail(name, detail) {
   throw new StageFailed(name)
 }
 
+/** How long any one command may run: a hung install fails its stage instead of the job's clock. */
+const COMMAND_TIMEOUT_MS = 10 * 60_000
+
 function run(command, args, options = {}) {
-  const r = spawnSync(command, args, { encoding: 'utf8', env, maxBuffer: 64 * 1024 * 1024, ...options })
+  const r = spawnSync(command, args, { encoding: 'utf8', env, maxBuffer: 64 * 1024 * 1024, timeout: COMMAND_TIMEOUT_MS, killSignal: 'SIGKILL', ...options })
   if (r.status !== 0 && !options.allowFailure) {
     throw new Error(`${command} ${args.join(' ')} exited ${r.status ?? r.signal}\n${mask((r.stderr || r.stdout || r.error?.message || '').slice(-4000))}`)
   }
@@ -145,6 +152,80 @@ function supersededAt(version) {
 function publishedAt(name, version) {
   const r = run('npm', ['view', name, 'time', '--json'], { allowFailure: true })
   try { return JSON.parse(r.stdout)[version] } catch { return undefined }
+}
+
+/**
+ * A `--before` later than `before` when npm refused one of the train's own
+ * packages as not yet published then. Upstream sometimes publishes a train's
+ * package after the next @deepseek-ai/dsh (0.1.5-rc.3's
+ * sidebar-documentpreview came 6 h later): the release became installable
+ * only then.
+ */
+function laterCutoff(output, before) {
+  const late = publishedTooLate(output)
+  if (before === undefined || late === undefined) return undefined
+  const at = publishedAt(late.name, late.version)
+  return at !== undefined && at >= before ? new Date(Date.parse(at) + 1000).toISOString() : undefined
+}
+
+/** An empty project to install the harness into. */
+function freshProject(dir) {
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'harness', version: '0.0.0', private: true }))
+}
+
+/**
+ * Install `spec` into `dir` the way a user gets it, and say how.
+ *
+ * As released (`--graph released`, the default): `--before` the next harness
+ * publication, moved later if the train's own packages went out after it. The
+ * plain peer graph first; early prereleases carry caret peers that pull a
+ * later prerelease of the same tuple, and npm then either answers ERESOLVE or
+ * — 0.1.1-rc.2 under npm 11 — burns minutes of CPU before it settles (one CI
+ * floor cell took 653 s). @deepseek-ai/dsh lists every package it composes as
+ * a dependency, so legacy peer mode plus the peers it leaves unmet, each at
+ * its declared range, is the same harness.
+ */
+function installHarness(spec, dir) {
+  let before
+  if (values.graph === 'released') before = supersededAt(values.dsh)
+  else if (values.graph !== 'today') fail('harness', `--graph must be released or today, not ${values.graph}`)
+  const common = () => ['install', '--prefix', dir, '--no-audit', '--no-fund', ...(before === undefined ? [] : ['--before', before])]
+  const describe = (how) => `npm install${before === undefined ? '' : ` --before ${before} (as released)`}${how}`
+  const limit = Number(values['install-timeout-ms'])
+  const failed = (what, r) => `${what} ${r.status === null ? `was killed (${r.signal ?? r.error?.code})` : `exited ${r.status}`}: ${mask(`${r.stdout}${r.stderr}`.slice(-2000))}`
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    freshProject(dir)
+    const first = run('npm', [...common(), spec], { allowFailure: true, timeout: limit })
+    if (first.status === 0) return describe('')
+    const later = laterCutoff(`${first.stdout}${first.stderr}`, before)
+    if (later !== undefined) { before = later; continue }
+    const settled = first.error?.code !== 'ETIMEDOUT' && first.signal === null
+    if (settled && !/ERESOLVE/.test(`${first.stdout}${first.stderr}`)) fail('harness', failed(`npm install ${spec}`, first))
+
+    freshProject(dir)
+    const legacy = run('npm', [...common(), '--legacy-peer-deps', spec], { allowFailure: true })
+    if (legacy.status !== 0) {
+      // A plain install that timed out never got as far as naming a late package.
+      const again = laterCutoff(`${legacy.stdout}${legacy.stderr}`, before)
+      if (again !== undefined) { before = again; continue }
+      fail('harness', failed(`npm install --legacy-peer-deps ${spec}`, legacy))
+    }
+    let added = 0
+    for (let round = 0; round < 8; round += 1) {
+      const unmet = unmetPeers(join(dir, 'node_modules'))
+      if (unmet.size === 0) break
+      added += unmet.size
+      const peers = run('npm', [...common(), '--legacy-peer-deps', ...[...unmet].map(([name, range]) => `${name}@${range}`)], { allowFailure: true })
+      if (peers.status !== 0) fail('harness', failed(`npm install --legacy-peer-deps ${[...unmet.keys()].join(' ')}`, peers))
+    }
+    const left = unmetPeers(join(dir, 'node_modules'))
+    if (left.size > 0) fail('harness', `peers still unmet after legacy install: ${[...left.keys()].join(', ')}`)
+    return describe(` --legacy-peer-deps + ${added} unmet peers at their ranges (the peer graph ${settled ? 'hit ERESOLVE' : `did not settle within ${Math.round(limit / 1000)} s`})`)
+  }
+  fail('harness', `npm install ${spec} kept refusing its own packages as unpublished before ${before}`)
 }
 
 /** Boot `dsh --profile web` in `dshHome`; resolves once the URL is printed and survived, or it failed. */
@@ -196,35 +277,7 @@ try {
   } else {
     assert.ok(values.dsh, '--dsh <exact version> or --harness-dir is required')
     harnessRoot = join(work, 'harness')
-    const spec = `@deepseek-ai/dsh@${values.dsh}`
-    const installArgs = ['install', '--prefix', harnessRoot, '--no-audit', '--no-fund', '--no-save', spec]
-    let before = values.graph === 'released' ? supersededAt(values.dsh) : undefined
-    if (values.graph !== 'released' && values.graph !== 'today') fail('harness', `--graph must be released or today, not ${values.graph}`)
-    let legacy = false
-    let output = ''
-    for (let attempt = 0; ; attempt++) {
-      const flags = [...installArgs, ...(before === undefined ? [] : ['--before', before]), ...(legacy ? ['--legacy-peer-deps'] : [])]
-      const r = run('npm', flags, { allowFailure: true })
-      output = `${r.stdout}${r.stderr}`
-      if (r.status === 0) break
-      if (attempt >= 8) fail('harness', `npm install ${spec} kept failing: ${mask(output.slice(-2000))}`)
-      // Upstream sometimes publishes a train's own package after the next
-      // @deepseek-ai/dsh (0.1.5-rc.3's sidebar-documentpreview came 6 h
-      // later): the release became installable only then, so move the
-      // cutoff to that publish.
-      const late = publishedTooLate(output)
-      if (before !== undefined && late !== undefined) {
-        const at = publishedAt(late.name, late.version)
-        if (at !== undefined && at >= before) { before = new Date(Date.parse(at) + 1000).toISOString(); continue }
-      }
-      // Early prereleases carry caret peers that pull a later prerelease of
-      // the same tuple; @deepseek-ai/dsh pins every package it composes
-      // exactly, which is the graph a user runs.
-      if (!legacy && /ERESOLVE/.test(output)) { legacy = true; continue }
-      fail('harness', `npm install ${spec}${before === undefined ? '' : ` --before ${before}`} failed: ${mask(output.slice(-2000))}`)
-    }
-    const via = `npm install${before === undefined ? '' : ` --before ${before} (as released)`}${legacy ? ' --legacy-peer-deps (the peer graph hit ERESOLVE)' : ''}`
-    result.install = via
+    result.install = installHarness(`@deepseek-ai/dsh@${values.dsh}`, harnessRoot)
     dshBin = join(harnessRoot, 'node_modules/@deepseek-ai/dsh/lib/bin.js')
   }
   if (!existsSync(dshBin)) fail('harness', `no dsh entry at ${dshBin}`)
