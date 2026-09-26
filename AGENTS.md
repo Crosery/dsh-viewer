@@ -14,7 +14,7 @@
 npm run build && grep -o 'require("[^"]*")' lib/client.js | sort -u
 ```
 
-只应出现 `react`、`react/jsx-runtime` 和 `react-dom`。CI 也断言这一条。
+只应出现 `react`、`react/jsx-runtime` 和 `react-dom`。CI 断言的正是这三个，外加从 `react-dom` 只读取 `createPortal`；要引入第四个，先在这里论证它在最低线 0.1.1-rc.2 的模块表里。
 
 **`inject` 里只写每个目标组合都保证存在的服务。** 未激活的条目是**硬启动失败**（`dsh: 1 entry did not activate`），不是优雅跳过——把 `webServer` 写进 `inject` 会让这个插件无法与 `dsh-headless` 组合，而不只是在那里失效。可选服务走 `ctx.inject([...], scoped => …)` 嵌套作用域，或 `ctx.get('...')` 读。
 

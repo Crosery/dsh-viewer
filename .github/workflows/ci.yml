@@ -60,30 +60,35 @@ jobs:
 
       # A client bundle may only require specifiers the loader's module table
       # answers. Anything else throws at plugin activation, in the browser,
-      # where no CI would otherwise see it. The allowlist is what the OLDEST
-      # supported shell answers (0.1.1-rc.2: no dsh-client-store, no dockkit);
-      # the harness job's boot smoke checks each train's real table.
+      # where no CI would otherwise see it. The allowlist is exactly what this
+      # bundle needs, all three answered by every supported shell (0.1.1-rc.2's
+      # table has 7 entries, 0.1.7's 9): react, its JSX runtime and react-dom,
+      # of which only createPortal may be read (AGENTS.md). Anything more is a
+      # decision to make there first. The harness job's boot smoke checks each
+      # train's real table.
       - name: Assert client bundle purity
         run: |
           node - <<'JS'
           const { readFileSync } = require('node:fs')
-          const ALLOWED = new Set([
-            'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
-            '@deepseek-ai/cordis',
-            '@deepseek-ai/dsh-client-ui-slots', '@deepseek-ai/dsh-client-ui-primitives',
-          ])
+          const ALLOWED = new Set(['react', 'react/jsx-runtime', 'react-dom'])
           const bundle = readFileSync('lib/client.js', 'utf8')
           const required = [...bundle.matchAll(/require\("([^"]+)"\)/g)].map(m => m[1])
           const foreign = [...new Set(required)].filter(s => !ALLOWED.has(s))
           if (foreign.length > 0) {
-            console.error('client bundle requires specifiers the module table cannot answer:', foreign)
+            console.error('client bundle requires specifiers outside react, react/jsx-runtime and react-dom:', foreign)
+            process.exit(1)
+          }
+          const fromDom = new Set([...bundle.matchAll(/\bimport_react_dom\d*\.([A-Za-z_$][\w$]*)/g)].map(m => m[1]))
+          const beyondPortal = [...fromDom].filter(name => name !== 'createPortal')
+          if (beyondPortal.length > 0) {
+            console.error('client bundle reads more than createPortal from react-dom:', beyondPortal)
             process.exit(1)
           }
           if (/\bnode:/.test(bundle)) {
             console.error('client bundle references a node: builtin')
             process.exit(1)
           }
-          console.log('client bundle is pure —', required.length, 'requires, all in the module table')
+          console.log('client bundle is pure —', required.length, 'requires of', [...new Set(required)].join(', '), '; react-dom:', [...fromDom].join(', ') || 'nothing')
           JS
 
       - name: Assert the package ships what dsh needs to activate it
