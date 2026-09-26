@@ -35,6 +35,8 @@
 
 今天全新执行 `npm i @deepseek-ai/dsh@0.1.1-rc.2`，cordis 一族会解析到 2026-09-22 的发布（cordis 4.0.4、cordis-plugin-hmr 1.0.19、cordis-plugin-loader 1.0.5），而这样装出来的 harness 不装任何插件也启动不了：`dsh: user patch-layer watching requires the Cordis HMR service`。改为按它的发布窗口解析（cordis 4.0.2、hmr 1.0.17、loader 1.0.3，与维护者日常使用的安装一致）就能启动。所以冒烟对每个版本都用 `npm install --before <下一个版本的发布时间>` 安装；该版本自己的某个包发布得比这还晚时就把时刻往后挪：`0.1.5-rc.3` 的 `dsh-client-ui-sidebar-documentpreview` 比它晚了大约七个小时，也晚于 `0.1.7-alpha.1`，在那之前 `0.1.5-rc.3` 根本装不上。`0.1.0-rc.8` 用 `window.__DSH_BOOT__` 而不是 `globalThis["__DSH_BOOT__"]` 下发启动图；冒烟两种都认。
 
+在 npm 11 下，`0.1.1-rc.2` 的 peer 解析在合理时间内算不完；GitHub 上的 floor 格在这里花了 653 秒。冒烟现在只给普通安装 120 秒，之后改用 legacy peer 模式安装，再把每个没满足的 peer 按声明的范围补装。2026-09-26 按这种方式重跑（Node 24.21.0、npm 11），最低线 8 个阶段全部通过：普通安装在 120 秒处被截断，在同一个 `--before 2026-08-30T14:10:52.613Z` 下补装了 21 个 peer，43 个启动条目，7 项的模块表，总计 2 分 52 秒。同一天 `0.1.7-rc.2` 通过 `--tarball` 安装一个单独打出的 tarball，8 个阶段全部通过，`scripts/release-notes.mjs` 也接受了冒烟为它记下的 sha256：这就是发版门禁走的路径。
+
 ## 0.2.0 在 0.1.7-rc.2 上的实测
 
 两个 host 都是隔离的：有自己的 `DSH_HOME`，用一个按要求调用 `display_file` 的模拟模型服务，插件从打包的 tarball 安装，profile 的 `compatibility.json` 设为 `{}`（不带豁免）。启动日志里没有 `skipping profile bundle`，也没有 `did not activate`。浏览器控制台没有任何错误或警告，特别是没有 `read_image` 的 slot 冲突。
