@@ -48,7 +48,7 @@ import { ViewerCard, type ViewerCardInjected } from './ViewerCard.tsx'
 import { ViewerTail, type ViewerTailInjected } from './ViewerTail.tsx'
 import { en, zh, type ViewerKey } from './locales.ts'
 import { installViewerStyles } from './styles.ts'
-import { foldSourceOf, viewerTurnDefinition } from './turn-tail.ts'
+import { foldSourceOf, viewerTurnDefinitions } from './turn-tail.ts'
 import {
   READ_IMAGE_PRIORITY, TURN_TAIL_SLOT, VIEWER_NS, contribute, turnTailJoinable, type LooseSlots,
 } from './registration.ts'
@@ -62,7 +62,8 @@ export type { ViewerKey } from './locales.ts'
 export { isDesktopShell, mediaSourceFor } from './host.ts'
 export { READ_IMAGE_PRIORITY, TURN_TAIL_SLOT, VIEWER_NS, contribute, turnTailJoinable } from './registration.ts'
 export {
-  VIEWER_TURN_DATA, displayedValueOf, foldSourceOf, foldsCompletedTurns, tailDisplays, turnStaysOpen, viewerTurnDefinition,
+  VIEWER_NESTED, VIEWER_TURN_DATA, VIEWER_TURN_END, displayedValueOf, foldSourceOf, foldsCompletedTurns,
+  nestedDisplayDefinition, tailDisplays, turnEndDefinition, turnStaysOpen, viewerTurnDefinition, viewerTurnDefinitions,
 } from './turn-tail.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -252,11 +253,21 @@ export function apply(ctx: ClientContext): void {
     const conversation = (scoped as unknown as { uiConversation?: ConversationLike }).uiConversation
     const register = conversation?.events?.register
     if (typeof register !== 'function') return
+    const [own, ...supplementary] = viewerTurnDefinitions
     try {
-      register.call(conversation?.events, viewerTurnDefinition)
+      register.call(conversation?.events, own)
     } catch (error: unknown) {
       console.warn('[dsh-viewer] could not register the turn-tail data; completed turns keep their displays folded', error)
       return
+    }
+    // The rest only add to what the tail shows; one that is refused must not
+    // take the top-level displays down with it.
+    for (const definition of supplementary) {
+      try {
+        register.call(conversation?.events, definition)
+      } catch (error: unknown) {
+        console.warn(`[dsh-viewer] could not register ${definition.kind}; the turn tail may miss some displays`, error)
+      }
     }
     const scopedSlots = (scoped as unknown as { slots: LooseSlots }).slots
     contribute(scopedSlots, TURN_TAIL_SLOT, () => {

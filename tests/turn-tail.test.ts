@@ -10,8 +10,9 @@
 import { deepEqual, equal, ok, throws } from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  VIEWER_TURN_DATA, displayedValueOf, foldSourceOf, foldsCompletedTurns, tailDisplays, turnStaysOpen,
-  viewerTurnDefinition, type EventLike, type TurnLike, type ViewerTurnData, type ViewerTurnState,
+  VIEWER_TURN_DATA, VIEWER_TURN_END, displayedValueOf, foldSourceOf, foldsCompletedTurns, nestedDisplayDefinition,
+  tailDisplays, turnEndDefinition, turnStaysOpen, viewerTurnDefinition, viewerTurnDefinitions,
+  type EventLike, type MatchLike, type ReaderLike, type TurnLike, type ViewerTurnData, type ViewerTurnState,
 } from '../src/client/turn-tail.ts'
 import { formatDisplayOutput } from '../src/display-file.ts'
 import { ASSET_ROUTE, type DisplayValue } from '../src/contract.ts'
@@ -135,4 +136,134 @@ test('the fold preference follows the chat’s settings form, and defaults to fo
 
   equal(foldSourceOf(() => undefined).getSnapshot(), true, 'no settings service yet')
   equal(foldSourceOf(() => ({ get: () => { throw new Error('unknown entry') } })).getSnapshot(), true, 'a form lookup that throws')
+})
+
+/** The Definition surface the engine double drives. */
+interface DefinitionLike {
+  kind: string
+  match(event: EventLike): { id: string; role: 'start' | 'update' } | null
+  start(context: unknown, match: MatchLike, reader?: ReaderLike): unknown
+  update(context: { state: never }, match: MatchLike): unknown
+  buildLocationData?(context: { state?: never }, scope: string, previous?: null): { turn: number; key: string; value: unknown } | null
+}
+
+/**
+ * A small double of the Conversation engine, enough for these Definitions: it
+ * places each event in the turn whose `turn/start` … `turn/end` range holds it
+ * (`unplaced` seqs stay unresolved), starts and updates contexts in log order,
+ * answers `reader.previous(kind)` with the latest context of that kind started
+ * earlier, and collects each context's turn data. The real 0.1.6 and 0.1.7
+ * engines were driven through the same Definitions over a window, a live tail
+ * and a prepended older page while this was written.
+ */
+function assemble(events: EventLike[], unplaced: ReadonlySet<number> = new Set()) {
+  const contexts = new Map<string, { kind: string; state: unknown; definition: DefinitionLike }>()
+  const latest = new Map<string, { state: unknown }>()
+  let open: number | undefined
+  for (const event of events) {
+    if (event.type === 'turn/start') open = (event.data as { turn: number }).turn
+    const location = open === undefined || unplaced.has(event.seq as number) ? { kind: 'unresolved' } : { kind: 'step', turn: { turn: open } }
+    for (const definition of viewerTurnDefinitions as unknown as DefinitionLike[]) {
+      const matched = definition.match(event)
+      if (matched === null) continue
+      const key = `${definition.kind}:${matched.id}`
+      const context = contexts.get(key)
+      if (context === undefined) {
+        if (matched.role !== 'start') continue
+        const reader: ReaderLike = { previous: kind => latest.get(kind) }
+        const created = { kind: definition.kind, definition, state: definition.start({}, { event, location }, reader) }
+        contexts.set(key, created)
+        latest.set(definition.kind, created)
+      } else {
+        context.state = definition.update({ state: context.state as never }, { event, location })
+      }
+    }
+    if (event.type === 'turn/end') open = undefined
+  }
+  const data = new Map<number, Map<string, unknown>>()
+  for (const { definition, state } of contexts.values()) {
+    const published = definition.buildLocationData?.({ state: state as never }, 'turn', null)
+    if (published == null) continue
+    const turn = data.get(published.turn) ?? new Map<string, unknown>()
+    turn.set(published.key, published.value)
+    data.set(published.turn, turn)
+  }
+  return (turn: number): TurnLike => ({
+    status: 'closed',
+    end: { data: { reason: { kind: 'completed' } } },
+    data: { get: key => data.get(turn)?.get(key) },
+  })
+}
+
+const turnStart = (seq: number, turn: number): EventLike => ({ type: 'turn/start', seq, data: { turn } })
+const turnEnd = (seq: number, turn: number): EventLike => ({ type: 'turn/end', seq, data: { turn, reason: { kind: 'completed' } } })
+/** One settled sub-dispatch inside `run_code`, as the code-mode bridge logs it: no turn, no metadata. */
+const dispatched = (seq: number, subCallId: string, name: string, value?: DisplayValue, isError = false): EventLike => ({
+  type: 'tool/ptc-dispatch',
+  seq,
+  data: {
+    rootCallId: 'rc', parentCallId: 'rc', subCallId, name, arguments: {}, isError,
+    content: [{ type: 'text', text: value === undefined ? 'failed' : formatDisplayOutput(value) }],
+  },
+})
+
+test('a display made inside run_code reaches the tail, beside the turn’s top-level displays', () => {
+  const turn = assemble([
+    turnStart(1, 1),
+    call(2, 'd1', 'display_file'),
+    result(3, 'd1', MP4),
+    call(4, 'rc', 'run_code'),
+    { type: 'tool/ptc-dispatch-start', seq: 5, data: { rootCallId: 'rc', parentCallId: 'rc', subCallId: 'rc:ptc:1', name: 'display_file', arguments: {} } },
+    dispatched(6, 'rc:ptc:1', 'display_file', PNG),
+    dispatched(7, 'rc:ptc:2', 'read'),
+    dispatched(8, 'rc:ptc:3', 'display_file', undefined, true),
+    result(9, 'rc', undefined),
+    turnEnd(20, 1),
+  ])
+  deepEqual(tailDisplays(turn(1), 15).map(entry => [entry.callId, entry.value.path]), [['d1', '/w/clip.mp4'], ['rc:ptc:1', '/w/shot.png']])
+  equal(tailDisplays(turn(1), 15)[1]?.value.assetUrl, PNG.assetUrl, 'rebuilt from the envelope: a nested dispatch has no metadata')
+})
+
+test('each turn keeps only its own nested displays', () => {
+  const turn = assemble([
+    turnStart(1, 1), dispatched(2, 'a:ptc:1', 'display_file', PNG), turnEnd(3, 1),
+    turnStart(4, 2), call(5, 'd1', 'display_file', 2), result(6, 'd1', MP4, {}, 2), turnEnd(7, 2),
+    turnStart(8, 3), dispatched(9, 'b:ptc:1', 'display_file', MP4), dispatched(10, 'b:ptc:2', 'display_file', PNG), turnEnd(11, 3),
+  ])
+  deepEqual(tailDisplays(turn(1), 99).map(entry => entry.callId), ['a:ptc:1'])
+  deepEqual(tailDisplays(turn(2), 99).map(entry => entry.callId), ['d1'], 'turn 1’s nested display does not leak forward')
+  deepEqual(tailDisplays(turn(3), 99).map(entry => entry.callId), ['b:ptc:1', 'b:ptc:2'])
+})
+
+test('one file displayed at the top level and again inside run_code appears once, where it was shown last', () => {
+  const turn = assemble([turnStart(1, 1), call(2, 'd1', 'display_file'), result(3, 'd1', PNG), dispatched(4, 'rc:ptc:1', 'display_file', PNG), turnEnd(9, 1)])
+  deepEqual(tailDisplays(turn(1), 5).map(entry => entry.callId), ['rc:ptc:1'])
+})
+
+test('a nested display the engine could not place belongs to no turn', () => {
+  const turn = assemble([turnStart(1, 1), dispatched(2, 'rc:ptc:1', 'display_file', PNG), turnEnd(3, 1)], new Set([2]))
+  deepEqual(tailDisplays(turn(1), 99), [])
+})
+
+test('the nested and turn-end Definitions match only what they own', () => {
+  equal(nestedDisplayDefinition.match(dispatched(1, 'rc:ptc:1', 'read')), null)
+  equal(nestedDisplayDefinition.match({ type: 'tool/ptc-dispatch-start', seq: 1, data: { subCallId: 'x', name: 'display_file' } }), null)
+  deepEqual(nestedDisplayDefinition.match(dispatched(1, 'rc:ptc:1', 'display_file', PNG)), { id: 'rc:ptc:1', role: 'start' })
+  equal(nestedDisplayDefinition.publication(), 'none', 'it publishes nothing of its own')
+  deepEqual(turnEndDefinition.match(turnEnd(9, 4)), { id: '4', role: 'start' })
+  equal(turnEndDefinition.match({ type: 'turn/end', seq: 9, data: {} }), null)
+  throws(() => turnEndDefinition.start({}, { event: turnStart(1, 1) }))
+  // Without a reader (an engine that predates it) a turn simply finds nothing nested.
+  deepEqual(turnEndDefinition.start({}, { event: turnEnd(9, 4) }).nested, [])
+})
+
+test('unchanged turn-end data is republished as the same value, and an empty turn publishes none', () => {
+  const state = turnEndDefinition.start({}, { event: turnEnd(9, 1), location: { kind: 'turn', turn: { turn: 1 } } }, {
+    previous: () => ({ state: nestedDisplayDefinition.start({}, { event: dispatched(2, 'rc:ptc:1', 'display_file', PNG), location: { kind: 'step', turn: { turn: 1 } } }) }),
+  })
+  const first = turnEndDefinition.buildLocationData({ state }, 'turn', null)
+  equal(first?.key, VIEWER_TURN_END)
+  equal(turnEndDefinition.buildLocationData({ state }, 'turn', first), first)
+  equal(turnEndDefinition.buildLocationData({ state }, 'step', null), null)
+  equal(turnEndDefinition.buildLocationData({ state: { turn: 1, nested: [] } }, 'turn', null), null)
 })

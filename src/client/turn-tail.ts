@@ -15,6 +15,17 @@
  *   between a completed turn's closing reply and its action row, outside the
  *   fold. The component lives in `ViewerTail.tsx`.
  *
+ * A `display_file` called from inside `run_code` never appears as a
+ * `tool/call`: the code-mode bridge logs it as `tool/ptc-dispatch-start` and
+ * `tool/ptc-dispatch`, and neither carries a turn number, so the turn-keyed
+ * Definition above cannot be routed one. Two more Definitions cover it, using
+ * the engine's own placement instead: each nested display starts a context
+ * that records the turn the engine located it in and links to the nested
+ * display before it, and each `turn/end` starts a context that walks that
+ * chain back through its own turn and publishes what it finds. The engine
+ * replays a start whenever the predecessor it read changes, which keeps the
+ * chain honest when older history loads.
+ *
  * Everything here is pure and structurally typed: the events come from a
  * session log this build may not have written, and the Definition contract is
  * declared by a package (`dsh-client-ui-conversation` 0.1.6+) that older
@@ -27,6 +38,12 @@ import { contentImageOf, envelopeValueOf } from './card-model.ts'
 
 /** Definition kind, and the key the turn's data is published under. */
 export const VIEWER_TURN_DATA = 'crosery-viewer'
+
+/** Definition kind of one `display_file` dispatched from inside `run_code`. */
+export const VIEWER_NESTED = 'crosery-viewer-nested'
+
+/** Definition kind, and Turn data key, of what a completed turn collects at its end. */
+export const VIEWER_TURN_END = 'crosery-viewer-turn-end'
 
 /** One file a turn displayed. */
 export interface TurnDisplay {
@@ -63,6 +80,33 @@ export interface EventLike {
 /** A Definition match, as far as this module reads one. */
 export interface MatchLike {
   event: EventLike
+  /** Where the engine placed the event: `{ kind: 'turn' | 'step', turn: { turn } }` inside a turn. */
+  location?: unknown
+}
+
+/** The engine's backward lookup, handed to a Definition's `start`. */
+export interface ReaderLike {
+  previous?(kind: string): { state?: unknown } | undefined
+}
+
+/** One nested display, linked to the nested display before it. */
+export interface NestedDisplay {
+  /** The turn the engine located the dispatch in, when it resolved one. */
+  turn: number | undefined
+  /** The display, when the dispatch succeeded with a displayable result. */
+  display: TurnDisplay | undefined
+  previous: NestedDisplay | undefined
+}
+
+/** Turn-scoped data published when a turn ends. */
+export interface ViewerTurnEndData {
+  /** `display_file` results dispatched from inside `run_code` during the turn, oldest first. */
+  nested: readonly TurnDisplay[]
+}
+
+/** The turn-end Definition's state. */
+export interface ViewerTurnEndState extends ViewerTurnEndData {
+  turn: number
 }
 
 /** Read one property of an unknown record. */
@@ -83,6 +127,14 @@ function turnOf(event: EventLike): number | undefined {
  */
 function isTranscriptResult(event: EventLike): boolean {
   return event.surfaceOp === undefined || event.surfaceOp === 'append'
+}
+
+/** The turn number the engine placed a match in. */
+function locationTurn(location: unknown): number | undefined {
+  const kind = field(location, 'kind')
+  if (kind !== 'turn' && kind !== 'step') return undefined
+  const turn = field(field(location, 'turn'), 'turn')
+  return typeof turn === 'number' && Number.isFinite(turn) ? turn : undefined
 }
 
 /** The call id a `tool/result` answers. */
@@ -168,6 +220,88 @@ export const viewerTurnDefinition = {
   },
 }
 
+/**
+ * Each `display_file` dispatched from inside `run_code`, chained in log order.
+ *
+ * Keyed by the sub-call id, one context per dispatch, publishing nothing on
+ * its own: the turn-end Definition reads the chain. The payload is recovered
+ * the way the nested tool row recovers it — a nested dispatch has no
+ * presentation metadata, so from the plugin's own envelope.
+ */
+export const nestedDisplayDefinition = {
+  kind: VIEWER_NESTED,
+  match(event: EventLike): { id: string; role: 'start' } | null {
+    if (event.type !== 'tool/ptc-dispatch' || field(event.data, 'name') !== DISPLAY_TOOL) return null
+    const id = field(event.data, 'subCallId')
+    return typeof id === 'string' || typeof id === 'number' ? { id: String(id), role: 'start' } : null
+  },
+  start(_context: unknown, match: MatchLike, reader?: ReaderLike): NestedDisplay {
+    const { event } = match
+    const previous = reader?.previous?.(VIEWER_NESTED)?.state as NestedDisplay | undefined
+    const value = displayedValueOf({ message: { isError: field(event.data, 'isError'), content: field(event.data, 'content') } })
+    return {
+      turn: locationTurn(match.location),
+      display: value === undefined || typeof event.seq !== 'number'
+        ? undefined
+        : { seq: event.seq, callId: String(field(event.data, 'subCallId')), value },
+      previous,
+    }
+  },
+  update(context: { state: NestedDisplay }): NestedDisplay {
+    return context.state
+  },
+  publication(): 'none' {
+    return 'none'
+  },
+}
+
+/**
+ * What a turn collects once it ends, from the Definitions that cannot be
+ * routed to it by turn number.
+ *
+ * Started by `turn/end`, so it reads each chain once, backwards from the end
+ * of the turn, and stops at the first entry the engine placed in another turn.
+ */
+export const turnEndDefinition = {
+  kind: VIEWER_TURN_END,
+  match(event: EventLike): { id: string; role: 'start' } | null {
+    if (event.type !== 'turn/end') return null
+    const turn = turnOf(event)
+    return turn === undefined ? null : { id: String(turn), role: 'start' }
+  },
+  start(_context: unknown, match: MatchLike, reader?: ReaderLike): ViewerTurnEndState {
+    const turn = turnOf(match.event)
+    if (match.event.type !== 'turn/end' || turn === undefined) throw new Error('dsh-viewer: a turn-end context starts at turn/end')
+    const nested: TurnDisplay[] = []
+    let node = reader?.previous?.(VIEWER_NESTED)?.state as NestedDisplay | undefined
+    for (; node !== undefined && node.turn === turn; node = node.previous) {
+      if (node.display !== undefined) nested.push(node.display)
+    }
+    return { turn, nested: nested.reverse() }
+  },
+  update(context: { state: ViewerTurnEndState }): ViewerTurnEndState {
+    return context.state
+  },
+  buildLocationData(
+    context: { state?: ViewerTurnEndState | undefined },
+    scope: string,
+    previous?: { kind?: string; turn?: number; key?: string; value?: ViewerTurnEndData } | null,
+  ): { kind: 'turn'; turn: number; key: string; value: ViewerTurnEndData } | null {
+    const state = context.state
+    if (scope !== 'turn' || state === undefined || state.nested.length === 0) return null
+    if (
+      previous?.kind === 'turn' && previous.turn === state.turn && previous.key === VIEWER_TURN_END
+      && previous.value?.nested === state.nested
+    ) {
+      return previous as { kind: 'turn'; turn: number; key: string; value: ViewerTurnEndData }
+    }
+    return { kind: 'turn', turn: state.turn, key: VIEWER_TURN_END, value: { nested: state.nested } }
+  },
+}
+
+/** Every Definition the turn tail's data comes from, in registration order. */
+export const viewerTurnDefinitions = [viewerTurnDefinition, nestedDisplayDefinition, turnEndDefinition] as const
+
 /** The slice of the tail owner's `turn` this module reads. */
 export interface TurnLike {
   status?: unknown
@@ -191,8 +325,9 @@ export function turnStaysOpen(turn: TurnLike): boolean {
 /**
  * The files a completed turn's tail shows.
  *
- * Only results logged before the closing reply belong to it, and a file
- * displayed several times appears once, where it was last displayed.
+ * Top-level and `run_code` displays alike; only results logged before the
+ * closing reply belong to it, and a file displayed several times appears once,
+ * where it was last displayed.
  * @param turn - the tail owner's turn.
  * @param closingSeq - the closing reply's log sequence.
  * @returns the displays to render, oldest first; empty when there are none.
@@ -200,7 +335,11 @@ export function turnStaysOpen(turn: TurnLike): boolean {
 export function tailDisplays(turn: TurnLike, closingSeq: number): readonly TurnDisplay[] {
   if (turnStaysOpen(turn)) return []
   const data = turn.data?.get?.(VIEWER_TURN_DATA) as ViewerTurnData | undefined
-  const displayed = Array.isArray(data?.displayed) ? data.displayed : []
+  const end = turn.data?.get?.(VIEWER_TURN_END) as ViewerTurnEndData | undefined
+  const displayed = [
+    ...Array.isArray(data?.displayed) ? data.displayed : [],
+    ...Array.isArray(end?.nested) ? end.nested : [],
+  ].sort((a, b) => a.seq - b.seq)
   const byPath = new Map<string, TurnDisplay>()
   for (const entry of displayed) {
     if (entry.seq >= closingSeq) continue

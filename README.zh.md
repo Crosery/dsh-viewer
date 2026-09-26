@@ -154,6 +154,10 @@ dsh 出厂只有 `read_image`：它存在的目的是把图片塞进**模型上�
 
 配套还有一段系统提示词，紧跟出厂 `tool:read` 的指引：0.1.5 及以前是 order 101（出厂是 100），0.1.7 起取 `getSectionOrder('TOOL_READ') + 1`。当前 agent 调不到 `display_file` 时这段为空；在提供 `present` 的版本上，它把交付物让给 `present`、把答案里的配图让给 markdown 图片，避免同一个文件被展示、内嵌、交付三遍。`.html` **不在**纠正范围内：读 HTML 源码是正当的文本读取，显示它是另一个意图。
 
+## 完成的轮次仍把展示过的文件留在屏幕上
+
+从 0.1.6 起，对话会把一个已完成轮次的工具行（包括本插件的卡片）收进一条「用时 N 秒」的折叠行，0.1.7 起这是默认行为。一个存在的意义就是把文件摆到用户眼前的插件，答案一出来卡片就被收起来了。所以插件同时往对话的轮次尾部（turn tail）贡献一项——就是轮次收尾回复和操作行之间那一栏，harness 自己的交付文件卡片也放在那里——在轮次完成后把这一轮展示过的文件显示在那里。从 `run_code` 里展示的文件也算：这类调用记成 `tool/ptc-dispatch` 事件，不带轮次号，所以在轮次结束时按对话引擎自己给它们定的位置收集。凡是工具行本来就看得见的地方，尾部都不出现：`verbose` 对话视图，以及仍在运行、被中止或出错的轮次。
+
 ## 配置
 
 四个开关，默认值都是「插件该有的行为」：
@@ -189,7 +193,7 @@ npm run typecheck     # 两个 program 分开检查
 npm run build         # 两份 .d.ts + 两个 bundle（产物提交进仓库，改动后要一并提交）
 npm run check         # 仓库不变式（README 计数、locale 键、peer 范围、安装路径）
 npm run check:dist    # 提交的 lib/ 与重新构建逐字节一致
-npm test              # 136 个用例
+npm test              # 142 个用例
 ```
 
 v0.1.1 时在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet-5 路由，headless Chrome 驱动；0.2.0 在 0.1.7-rc.2 的 Web 与桌面版上的实测见 [docs/acceptance.zh.md](docs/acceptance.zh.md)）：
