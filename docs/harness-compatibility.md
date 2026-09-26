@@ -16,20 +16,20 @@
 | 0.1.3 | `0.1.3-alpha.2` | yes | `0.1.3-alpha.2` | — |
 | 0.1.5 | `0.1.5-alpha.1`, `0.1.5-alpha.2`, `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3` | yes | `0.1.5-rc.3` | `0.1.5-rc.2`, with v0.1.1 |
 | 0.1.6 | `0.1.6-alpha.1`, `0.1.6-alpha.2` | yes | `0.1.6-alpha.2` | — |
-| 0.1.7 | `0.1.7-alpha.1`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2` | yes | `0.1.7-rc.2`, from npm and from the desktop app's own bytes | `0.1.7-rc.2`, Web and desktop |
+| 0.1.7 | `0.1.7-alpha.1`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2` | yes | `0.1.7-alpha.2`; `0.1.7-rc.2`, from npm and from the desktop app's own bytes | `0.1.7-rc.2`, Web and desktop |
 
 "Types + tests" means both typechecks and the whole suite pass with every `@deepseek-ai/dsh-*` devDependency repointed at exactly that version (`node scripts/sweep-trains.mjs`). The boot smoke column is what ran locally for this release; CI's weekly sweep and the release gate boot **every** installable version. The evidence for each column is in [acceptance.md](acceptance.md).
 
 ### The trains before 0.1.0-rc.8
 
-Up to `0.1.0-rc.7` the harness has a different front end: the `dsh-client-web` shell, the slot registry declared by `@deepseek-ai/dsh-client-runtime`, and no `@deepseek-ai/dsh-client-ui-renderer` (first published at `0.1.0-rc.8`). None of that reaches the plugin:
+On `0.0.1-rc.5` through `0.1.0-rc.6` the harness has a different front end: the `dsh-client-web` shell, the slot registry declared by `@deepseek-ai/dsh-client-runtime`, and no `@deepseek-ai/dsh-client-ui-renderer` (first published at `0.1.0-rc.8`). `0.1.0-rc.7` publishes no renderer either, but installed as released it already runs `0.1.0-rc.8`'s front end: its window closes after the rc.8 sub-packages went out, and its caret ranges reach them. None of that reaches the plugin:
 
 - **The browser half needs two services, `slots` and `locale`**, and every train has both. The renderer package is imported type-only, for the `slots` declaration. On a train that never published it, the typecheck keeps this repository's pin of it and pins `dsh-client-runtime` to the train, which is where those trains declare `slots`; the build never contained a value from it.
 - **`dsh.client.inject` still names the renderer.** That list is graph metadata: a client fiber waits on the services its entry injects, not on package names. The boot smoke reports the name as absent on these trains and goes on to load the bundle.
-- **The shell's module table answers 10 specifiers** (react, its JSX runtime, react-dom and seven more), a superset of the three this bundle requires.
+- **The old shell's module table answers 10 specifiers** (react, its JSX runtime, react-dom and seven more), a superset of the three this bundle requires; the rc.8 shell answers 7.
 - **Up to 0.1.1 the settings API is `ctx.settings.register`**, which `mountSettingsSection` already drives.
 
-Two install graphs exist for `0.1.0-rc.2` – `rc.7`. As released (`--graph released`, what the smoke uses), each resolves its own sub-packages. Installed today, their caret dependencies resolve to the `0.1.0-rc.8` sub-packages instead. Both are checked; see [acceptance.md](acceptance.md).
+Installed today (`--graph today`) instead of as released, every one of these trains resolves the cordis family to its 2026-09-22 releases (cordis 4.0.4, cordis-plugin-hmr 1.0.19, cordis-plugin-loader 1.0.5), and the 0.1.0 trains' sub-packages to `0.1.0-rc.8`'s. That harness does not boot with or without any plugin (`dsh: user patch-layer watching requires the Cordis HMR service`), the same upstream drift that breaks a fresh `0.1.1-rc.2`, so nobody can run the plugin there and nothing about it can be checked. The smoke reports exactly that; see [acceptance.md](acceptance.md).
 
 Not supported, on evidence:
 
@@ -48,7 +48,7 @@ No peer is optional. dsh ≥0.1.7's `evaluatePluginCompatibility` ignores `peerD
 
 ### Trains whose own peer graph does not resolve
 
-`0.1.0-rc.6`, `0.1.0-rc.7`, `0.1.1-rc.1`, `0.1.2-alpha.2` – `alpha.5`, `0.1.5-alpha.1` – `rc.2`, `0.1.6-alpha.1` and `0.1.7-alpha.1` publish harness packages with caret peers (`^0.1.1-rc.1`). npm's automatic peer install then drags in a later prerelease of the same tuple whose own peers conflict with the pinned one, and `npm install` stops with `ERESOLVE`. Earlier versions of this page therefore called several of them incoherent.
+`0.1.0-rc.2` – `rc.7`, `0.1.1-rc.1`, `0.1.2-alpha.2` – `alpha.5`, `0.1.5-alpha.1` – `rc.2`, `0.1.6-alpha.1` and `0.1.7-alpha.1` publish harness packages with caret peers (`^0.1.1-rc.1`). npm's automatic peer install then drags in a later prerelease of the same tuple whose own peers conflict with the pinned one, and `npm install` stops with `ERESOLVE`. Earlier versions of this page therefore called several of them incoherent.
 
 The harness never runs that graph. `@deepseek-ai/dsh` pins every package it composes to one exact version. So when the peer graph fails (`ERESOLVE`, a peer npm cannot find, or no answer within 5 minutes), the sweep and the CI install the repointed copy through that version's own `@deepseek-ai/dsh` instead, and every one of these versions passes there.
 

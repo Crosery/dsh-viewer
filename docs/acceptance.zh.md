@@ -4,6 +4,57 @@
 
 在哪些 harness 版本上做过端到端验证、怎么验证的。下面每个数字都来自真实运行的 host，不是对着代码推出来的。末尾的 v0.1.1 各节保留为那次发版的记录。
 
+## 0.3.0：0.1.0-rc.8 之前的版本，实测
+
+0.2.0 的范围从 `0.1.0-rc.8` 起算，理由是 `dsh-client-ui-renderer` 在那里才首次发布。从来没人在更早的版本上跑过本插件。下面这些跑过了，在真实浏览器里，`src/` 和 `lib/` 没有任何改动（`lib/` 与 v0.2.0 逐字节一致，先装的是 0.2.0 的压缩包；最后一行用 0.3.0 自己的压缩包重做了一遍）。
+
+每个 host 都是一次性的 `DSH_HOME`：harness 按发布时的样子安装（`npm install --before` 下一次发布），插件用 `dsh plugin --profile web add` 安装。一个模拟的 OpenAI 兼容模型服务（0.1.7 桌面版实测用的那个的副本）通过 profile 的 `cordis.patch.yml` 配置（`llm-pi-ai` provider、`agent-default-model`）；收到 `SHOW:display_file:png` 或 `:pdf` 时，它对一张合成的 480×300 PNG 或一页 PDF 调用 `display_file`。目录选择器固定为页内浏览器，工作区预置为测试文件所在目录，所以不会弹出原生对话框。
+
+![0.0.1-rc.5：图片卡片](acceptance/early-001rc5-image-card.png)
+
+![0.1.0-rc.6：内嵌的 PDF 卡片](acceptance/early-010rc6-pdf-card.png)
+
+| Harness | 界面 | 图片卡片 | 灯箱 | PDF | 刷新之后 | 控制台 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `0.0.1-rc.5`，v0.2.0 压缩包 | 正常加载，没有启动审计页 | `480×300 · 6.1 KB`，已进入模型上下文 | `role=dialog`、`aria-modal`，焦点在关闭按钮上，Escape 关闭 | 内嵌 frame，不带 `sandbox`；签名资源回答 `200 application/pdf` | 两张卡片都从会话日志重建 | 没有错误或警告 |
+| `0.1.0-rc.2`，v0.2.0 压缩包 | 同上 | 同上 | 同上 | 同上 | 同上 | 同上 |
+| `0.1.0-rc.6`，v0.2.0 压缩包 | 同上 | 同上 | 同上 | 同上 | 同上 | 同上 |
+| `0.0.1-rc.5`，0.3.0 压缩包 | 同上 | 同上 | 同上 | 同上 | 同上 | 同上 |
+
+这些版本缺什么、为什么不要紧，见 [harness-compatibility.zh.md](harness-compatibility.zh.md#010-rc8-之前的版本)。
+
+## 0.3.0：每一个已发布版本
+
+`node scripts/sweep-trains.mjs --work /tmp/viewer-early-sweep`，2026-09-26 运行（Node 26.7.0、npm 11），覆盖全部 27 个已发布版本。某版本从未发布的 harness 包保留本仓库钉住的版本（`0.1.0-rc.8` 之前是 `dsh-client-ui-renderer@0.1.7-rc.2`），有 `dsh-client-runtime` 的版本把它钉到该版本。
+
+| 版本 | 结果 |
+| --- | --- |
+| `0.0.1-rc.5` | 通过：host tsc、client tsc 和 170/170 测试；`dsh-client-ui-renderer` 保留在 `0.1.7-rc.2`，`dsh-client-runtime` 钉到该版本 |
+| `0.1.0-rc.2`、`0.1.0-rc.3`、`0.1.0-rc.6`、`0.1.0-rc.7` | 通过，170/170，renderer 保留在钉住的版本；经由该版本自己的 `@deepseek-ai/dsh` 安装，因为它的脱字符 peer 让 npm 的 peer 图以 `ERESOLVE` 中止 |
+| `0.1.0-rc.8`、`0.1.1-rc.2`、`0.1.2-rc.1`、`0.1.3-alpha.2`、`0.1.5-rc.3`、`0.1.6-alpha.2`、`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2` | 通过，170/170 |
+| `0.1.1-rc.1`、`0.1.2-alpha.2` – `alpha.5`、`0.1.5-alpha.1`、`0.1.5-alpha.2`、`0.1.5-rc.1`、`0.1.5-rc.2`、`0.1.6-alpha.1`、`0.1.7-alpha.1` | 通过，170/170，经由该版本自己的 `@deepseek-ai/dsh` 安装（peer 图 `ERESOLVE`） |
+| `0.0.1-rc.1`、`0.0.1-rc.2` | 上游发布不完整：单独安装该版本的 `@deepseek-ai/dsh` 得到 `npm error 404 Not Found - GET https://registry.npmjs.org/@deepseek-ai%2fdsh-agent-tool-mode`。类型和测试没跑：`dsh-client-ui-renderer` 和 `dsh-home-paths` 在那里也没发布 |
+
+每个 harness peer 在两种规则下都接纳全部 27 个版本。退出码是 0。
+
+## 0.3.0：启动冒烟
+
+严格模式（不带豁免），`SMOKE_RESULT=/tmp/viewer-early-smoke.jsonl`，Node 26.7.0、pnpm 11.7.0，每个 harness 都按发布时的样子安装。
+
+| Harness | 安装方式 | 结果 |
+| --- | --- | --- |
+| `0.0.1-rc.5` | `npm install --before 2026-08-13T09:48:26.232Z` | 8 个阶段全部通过；39 个启动条目；报告依赖图里没有 renderer；10 项的模块表 |
+| `0.1.0-rc.2` | `--before 2026-08-13T11:20:53.822Z` | 同上：39 个条目、没有 renderer、10 项 |
+| `0.1.0-rc.3` | `--before 2026-08-13T12:42:46.293Z`，时刻挪到了晚发布的 `dsh-timeout@0.1.0-rc.6` 之后（第一次运行在那里以 `notarget` 停下；修的是冒烟，不是插件） | 同上：39 个条目、没有 renderer、10 项 |
+| `0.1.0-rc.6` | `--before 2026-08-17T11:50:59.194Z` | 同上：39 个条目、没有 renderer、10 项 |
+| `0.1.0-rc.7` | `--before 2026-08-19T15:41:29.655Z`，legacy peer 模式 + 补装 20 个未满足的 peer | 8 个阶段全部通过；43 个条目，含 renderer：按发布时的样子装，它跑的已经是 rc.8 的前端；7 项 |
+| `0.1.0-rc.8`、`0.1.1-rc.2`（最低线） | 各自发布时间窗的 `--before`，legacy peer 模式 + 补装 20 和 21 个 peer | 8 个阶段全部通过；43 个条目；7 项 |
+| `0.1.2-rc.1`、`0.1.3-alpha.2`、`0.1.5-rc.3`、`0.1.6-alpha.2`、`0.1.7-alpha.2` | 各自发布时间窗的 `--before` | 8 个阶段全部通过；47、49、54、59、63 个条目；8、8、9、9、9 项 |
+| `0.1.7-rc.2`，npm | `npm install`，最新的发布 | 8 个阶段全部通过；65 个条目；9 项 |
+| `0.1.7-rc.2`，桌面版 | `/tmp/dsh-desktop-017/dsh`（应用的 `app.asar/dsh`），用已安装应用的可执行文件加 `ELECTRON_RUN_AS_NODE=1` 运行（Node 24.18.1） | 8 个阶段全部通过；65 个条目；9 项 |
+
+同样这些版本按今天的依赖图安装（`--graph today`：`0.0.1-rc.5`、`0.1.0-rc.2`、`rc.3`、`rc.6`、`rc.7`），会解析到 cordis 4.0.4、cordis-plugin-hmr 1.0.19 和 cordis-plugin-loader 1.0.5，0.1.0 各版本还会拿到 `0.1.0-rc.8` 的子包。每一次冒烟都在 `boot` 失败，而冒烟自带的对照——同一个 harness、不装插件的 home——也以同样方式失败：`dsh: user patch-layer watching requires the Cordis HMR service`。这张依赖图谁都启动不了。
+
 ## 0.2.0：每一个已发布版本
 
 `node scripts/sweep-trains.mjs` 把临时副本的每个 `@deepseek-ai/dsh-*` devDependency 改指到同一个版本，安装后跑两份类型检查和整套测试。它对每一个已发布版本都这样做一遍。本插件编译依赖的每个 harness 包都在某版本上发布了、且三项检查全部通过时，该版本才算**已支持**。
@@ -105,6 +156,9 @@
 - **Windows。** 桌面版也发布 `win-x64`，CI 会检查它的更新源与 macOS 的一致，但没有任何东西在 Windows 上跑过。Linux 上的证据来自 CI。
 - **CI 里的桌面 GUI。** `desktop-bytes` 任务不开窗口地启动应用自带的运行时。Electron 渲染进程、preload 桥接和原生拖放由上面的人工实测覆盖，且只在 macOS 上。
 - **0.2.0 在 0.1.1-rc.2 上的浏览器实测。** 那里的证据是类型检查、测试、逐字节一致的构建和启动冒烟；上面的实测卡片来自 v0.1.1。
+- **0.1.0-rc.8 之前的版本上，图片和 PDF 以外的实测。** 视频、音频、Office 与 HTML 卡片、turn tail 和 settings 接口在那里只经过测试套件和启动冒烟，`0.1.0-rc.3` 与 `rc.7` 也只经过这两项，没有实测。
+- **`0.0.1-rc.1` 与 `0.0.1-rc.2` 跑起来。** 它们的 harness 谁都装不上，所以对它们只有 peer 接纳这一项。
+- **早期版本今天的安装依赖图能启动。** 它把 cordis 一族解析到 2026-09-22 的发布，这样的 harness 装不装插件都启动不了（见上面的冒烟一节）；插件在那里没法查，也没人能在那里运行它。
 - **真实的「只有附件」图片经过对话自带的加载器，以及上游 `read_image` 视图在实测中胜出。** 这两点只由针对真实 slot core 的单测覆盖。
 - **卡片模型的回放路径**（旧版本写下的会话日志、被截断的窗口）由单测覆盖，不靠截图。
-- **真实模型回合。** 0.1.7 的会话由模拟模型服务驱动，v0.1.1 的会话是预置的，所以这里不依赖任何模型服务可达。
+- **真实模型回合。** 0.1.7 和早期版本的会话由模拟模型服务驱动，v0.1.1 的会话是预置的，所以这里不依赖任何模型服务可达。

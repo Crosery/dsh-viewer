@@ -4,6 +4,57 @@
 
 What was verified end to end, on which harness versions, and how. Every number below came from a running host, not from reasoning about one. The v0.1.1 sections at the end are kept as the record of that release.
 
+## 0.3.0: the trains before 0.1.0-rc.8, live
+
+The ranges of 0.2.0 started at `0.1.0-rc.8`, on the reasoning that `dsh-client-ui-renderer` first shipped there. Nobody had run the plugin on an earlier train. These did, in a real browser, with no change to `src/` or `lib/` (`lib/` is byte-identical to v0.2.0's, and 0.2.0's tarball was installed first; the last row repeats the check with 0.3.0's own tarball).
+
+Each host was a throwaway `DSH_HOME` holding a harness installed as released (`npm install --before` the next release) and the plugin installed with `dsh plugin --profile web add`. A mock OpenAI-compatible provider (a copy of the one the 0.1.7 desktop run used) was configured through the profile's `cordis.patch.yml` (`llm-pi-ai` provider, `agent-default-model`); asked for `SHOW:display_file:png` or `:pdf`, it calls `display_file` on a synthetic 480×300 PNG or a one-page PDF. The directory picker was pinned to the in-page browser and the workspace seeded to the fixtures directory, so no native dialog opens.
+
+![0.0.1-rc.5: the image card](acceptance/early-001rc5-image-card.png)
+
+![0.1.0-rc.6: the PDF card, inline](acceptance/early-010rc6-pdf-card.png)
+
+| Harness | UI | Image card | Lightbox | PDF | After a reload | Console |
+| --- | --- | --- | --- | --- | --- | --- |
+| `0.0.1-rc.5`, v0.2.0 tarball | loads, no startup-audit page | `480×300 · 6.1 KB`, in model context | `role=dialog`, `aria-modal`, focus on the close button, Escape closes it | inline frame, no `sandbox`; the signed asset answers `200 application/pdf` | both cards rebuilt from the session log | no errors or warnings |
+| `0.1.0-rc.2`, v0.2.0 tarball | the same | the same | the same | the same | the same | the same |
+| `0.1.0-rc.6`, v0.2.0 tarball | the same | the same | the same | the same | the same | the same |
+| `0.0.1-rc.5`, 0.3.0 tarball | the same | the same | the same | the same | the same | the same |
+
+What these trains lack, and why it does not matter, is in [harness-compatibility.md](harness-compatibility.md#the-trains-before-010-rc8).
+
+## 0.3.0: every published version
+
+`node scripts/sweep-trains.mjs --work /tmp/viewer-early-sweep`, run on 2026-09-26 (Node 26.7.0, npm 11), over all 27 published versions. A harness package the train never published keeps the repository's pin (`dsh-client-ui-renderer@0.1.7-rc.2` before `0.1.0-rc.8`), and `dsh-client-runtime` is pinned to the train where it exists.
+
+| Versions | Outcome |
+| --- | --- |
+| `0.0.1-rc.5` | pass: host tsc, client tsc and 170/170 tests, with `dsh-client-ui-renderer` kept at `0.1.7-rc.2` and `dsh-client-runtime` pinned to the train |
+| `0.1.0-rc.2`, `0.1.0-rc.3`, `0.1.0-rc.6`, `0.1.0-rc.7` | pass, 170/170, the renderer kept at the pin; installed through that version's own `@deepseek-ai/dsh`, because its caret peers make npm's peer graph stop with `ERESOLVE` |
+| `0.1.0-rc.8`, `0.1.1-rc.2`, `0.1.2-rc.1`, `0.1.3-alpha.2`, `0.1.5-rc.3`, `0.1.6-alpha.2`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2` | pass, 170/170 |
+| `0.1.1-rc.1`, `0.1.2-alpha.2` – `alpha.5`, `0.1.5-alpha.1`, `0.1.5-alpha.2`, `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.6-alpha.1`, `0.1.7-alpha.1` | pass, 170/170, installed through that version's own `@deepseek-ai/dsh` (`ERESOLVE` on the peer graph) |
+| `0.0.1-rc.1`, `0.0.1-rc.2` | incomplete upstream: `npm error 404 Not Found - GET https://registry.npmjs.org/@deepseek-ai%2fdsh-agent-tool-mode`, installing `@deepseek-ai/dsh` at that version on its own. Types and tests not run: `dsh-client-ui-renderer` and `dsh-home-paths` were not published there either |
+
+Every harness peer admits all 27 versions under both rules. The exit status was 0.
+
+## 0.3.0: boot smoke
+
+Strict (no exemption), `SMOKE_RESULT=/tmp/viewer-early-smoke.jsonl`, Node 26.7.0, pnpm 11.7.0, each harness installed as released.
+
+| Harness | How it was installed | Result |
+| --- | --- | --- |
+| `0.0.1-rc.5` | `npm install --before 2026-08-13T09:48:26.232Z` | all 8 stages pass; 39 boot entries; the renderer reported absent from the graph; a 10-specifier module table |
+| `0.1.0-rc.2` | `--before 2026-08-13T11:20:53.822Z` | the same: 39 entries, renderer absent, 10 specifiers |
+| `0.1.0-rc.3` | `--before 2026-08-13T12:42:46.293Z`, moved past the late `dsh-timeout@0.1.0-rc.6` (the first run stopped there with `notarget`; fixed in the smoke, not in the plugin) | the same: 39 entries, renderer absent, 10 specifiers |
+| `0.1.0-rc.6` | `--before 2026-08-17T11:50:59.194Z` | the same: 39 entries, renderer absent, 10 specifiers |
+| `0.1.0-rc.7` | `--before 2026-08-19T15:41:29.655Z`, legacy peer mode + 20 unmet peers | all 8 stages pass; 43 entries with the renderer: as released it already runs rc.8's front end; 7 specifiers |
+| `0.1.0-rc.8`, `0.1.1-rc.2` (the floor) | `--before` each release window, legacy peer mode + 20 and 21 unmet peers | all 8 stages pass; 43 entries; 7 specifiers |
+| `0.1.2-rc.1`, `0.1.3-alpha.2`, `0.1.5-rc.3`, `0.1.6-alpha.2`, `0.1.7-alpha.2` | `--before` each release window | all 8 stages pass; 47, 49, 54, 59 and 63 entries; 8, 8, 9, 9 and 9 specifiers |
+| `0.1.7-rc.2`, npm | `npm install`, the newest release | all 8 stages pass; 65 entries; 9 specifiers |
+| `0.1.7-rc.2`, desktop app | `/tmp/dsh-desktop-017/dsh` (the app's `app.asar/dsh`), run by the installed app's binary with `ELECTRON_RUN_AS_NODE=1` (Node 24.18.1) | all 8 stages pass; 65 entries; 9 specifiers |
+
+The same trains installed as of today (`--graph today`: `0.0.1-rc.5`, `0.1.0-rc.2`, `rc.3`, `rc.6`, `rc.7`) resolve cordis 4.0.4, cordis-plugin-hmr 1.0.19 and cordis-plugin-loader 1.0.5, and the 0.1.0 trains take `0.1.0-rc.8`'s sub-packages. Each smoke failed at `boot`, and in each the smoke's own control run, the same harness in a home without the plugin, failed the same way: `dsh: user patch-layer watching requires the Cordis HMR service`. That graph does not boot for anyone.
+
 ## 0.2.0: every published version
 
 `node scripts/sweep-trains.mjs` repoints every `@deepseek-ai/dsh-*` devDependency of a scratch copy at one version, installs, and runs both typechecks and the whole suite. It does this for every published version. A version is **supported** when every harness package the plugin compiles against is published on it and all three checks pass.
@@ -105,6 +156,9 @@ This host did not start at all before the fix: the entry failed to load with `do
 - **Windows.** The desktop app ships for `win-x64` too, and CI checks that its feed agrees with the macOS one, but nothing ran on Windows. The Linux evidence is CI's.
 - **The desktop GUI in CI.** The `desktop-bytes` job boots the app's own runtime without a window. The Electron renderer, the preload bridge and native drag-and-drop were verified by hand, above, on macOS only.
 - **A live browser check of 0.2.0 on 0.1.1-rc.2.** There, the evidence is typecheck, tests, a byte-identical build and the boot smoke; the live cards above are from v0.1.1.
+- **More than images and PDFs on the trains before 0.1.0-rc.8.** Video, audio, Office and HTML cards, the turn tail and the settings API ran there only through the test suite and the boot smoke, and `0.1.0-rc.3` and `rc.7` only through those, not live.
+- **`0.0.1-rc.1` and `0.0.1-rc.2` running.** Nobody can install their harness, so only peer admission applies to them.
+- **Today's install graph of the early trains booting.** It resolves the cordis family to its 2026-09-22 releases, and that harness does not boot with or without the plugin (see the smoke section above); the plugin cannot be checked there, and nobody can run it there.
 - **Real attachment-only images through the chat's loader, and upstream's `read_image` view winning live.** Both are covered by unit tests against the real slot core only.
 - **The card model's replay paths** (a session log written by an older build, a truncated window) are covered by unit tests, not by screenshots.
-- **Live model turns.** A mock provider drove the 0.1.7 sessions and the v0.1.1 sessions were seeded, so nothing here depends on a model provider being reachable.
+- **Live model turns.** A mock provider drove the 0.1.7 and early-train sessions and the v0.1.1 sessions were seeded, so nothing here depends on a model provider being reachable.

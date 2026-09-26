@@ -16,20 +16,20 @@
 | 0.1.3 | `0.1.3-alpha.2` | 是 | `0.1.3-alpha.2` | — |
 | 0.1.5 | `0.1.5-alpha.1`、`0.1.5-alpha.2`、`0.1.5-rc.1`、`0.1.5-rc.2`、`0.1.5-rc.3` | 是 | `0.1.5-rc.3` | `0.1.5-rc.2`，v0.1.1 时 |
 | 0.1.6 | `0.1.6-alpha.1`、`0.1.6-alpha.2` | 是 | `0.1.6-alpha.2` | — |
-| 0.1.7 | `0.1.7-alpha.1`、`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2` | 是 | `0.1.7-rc.2`，npm 安装的和桌面版自带的各一次 | `0.1.7-rc.2`，Web 与桌面版 |
+| 0.1.7 | `0.1.7-alpha.1`、`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2` | 是 | `0.1.7-alpha.2`；`0.1.7-rc.2`，npm 安装的和桌面版自带的各一次 | `0.1.7-rc.2`，Web 与桌面版 |
 
 「类型 + 测试」指把每个 `@deepseek-ai/dsh-*` devDependency 精确改指到该版本后，两份类型检查和整套测试都通过（`node scripts/sweep-trains.mjs`）。「启动冒烟」一列是本次发版在本地跑过的；CI 每周的全量扫描和发版门禁会启动**每一个**能装上的版本。每一列的证据见 [acceptance.zh.md](acceptance.zh.md)。
 
 ### 0.1.0-rc.8 之前的版本
 
-到 `0.1.0-rc.7` 为止，harness 的前端是另一套：`dsh-client-web` 外壳，slot 注册表由 `@deepseek-ai/dsh-client-runtime` 声明，没有 `@deepseek-ai/dsh-client-ui-renderer`（`0.1.0-rc.8` 才首次发布）。这些都碰不到本插件：
+在 `0.0.1-rc.5` 到 `0.1.0-rc.6` 上，harness 的前端是另一套：`dsh-client-web` 外壳，slot 注册表由 `@deepseek-ai/dsh-client-runtime` 声明，没有 `@deepseek-ai/dsh-client-ui-renderer`（`0.1.0-rc.8` 才首次发布）。`0.1.0-rc.7` 也没发布 renderer，但按发布时的样子安装，它跑的已经是 `0.1.0-rc.8` 的前端：它的时间窗在 rc.8 的子包发布之后才关上，而它的脱字符范围够得到那些子包。这些都碰不到本插件：
 
 - **浏览器半边只需要两个服务：`slots` 和 `locale`**，每个版本都有。renderer 包只做仅类型导入，取的是 `slots` 的声明。在从未发布它的版本上，类型检查保留本仓库钉住的那个 renderer 版本，并把 `dsh-client-runtime` 钉到该版本——那几个版本正是在这里声明 `slots` 的；构建产物从来不含它的任何值。
 - **`dsh.client.inject` 仍然写着 renderer。** 这份清单只是依赖图元数据：客户端 fiber 等的是入口注入的服务，不是包名。启动冒烟在这些版本上报告这个名字不存在，然后照常加载 bundle。
-- **外壳的模块表回答 10 个标识符**（react、它的 JSX runtime、react-dom，外加另外七个），是本 bundle 需要的三个的超集。
+- **老外壳的模块表回答 10 个标识符**（react、它的 JSX runtime、react-dom，外加另外七个），是本 bundle 需要的三个的超集；rc.8 的外壳回答 7 个。
 - **0.1.1 及以前的 settings 接口是 `ctx.settings.register`**，`mountSettingsSection` 本来就会驱动它。
 
-`0.1.0-rc.2` – `rc.7` 有两张安装依赖图。按发布时的样子（`--graph released`，冒烟用的就是这个），每个版本解析到自己的子包；今天全新安装时，它们的脱字符依赖会解析到 `0.1.0-rc.8` 的子包。两张图都查过，见 [acceptance.zh.md](acceptance.zh.md)。
+如果不按发布时的样子、而是今天全新安装（`--graph today`），这些版本每一个都会把 cordis 一族解析到它们 2026-09-22 的发布（cordis 4.0.4、cordis-plugin-hmr 1.0.19、cordis-plugin-loader 1.0.5），0.1.0 各版本的子包则解析到 `0.1.0-rc.8` 的。这样装出来的 harness 装不装插件都启动不了（`dsh: user patch-layer watching requires the Cordis HMR service`），和全新安装 `0.1.1-rc.2` 坏掉是同一个上游漂移，所以谁都没法在那里运行本插件，也就没有什么可查。冒烟如实报告的正是这一点，见 [acceptance.zh.md](acceptance.zh.md)。
 
 以下不支持，各有证据：
 
@@ -48,7 +48,7 @@ peer 范围，每个 `@deepseek-ai/dsh-*` peer 都一样，每个元组一组比
 
 ### 自身 peer 图解析不了的版本
 
-`0.1.0-rc.6`、`0.1.0-rc.7`、`0.1.1-rc.1`、`0.1.2-alpha.2` – `alpha.5`、`0.1.5-alpha.1` – `rc.2`、`0.1.6-alpha.1` 和 `0.1.7-alpha.1` 发布的 harness 包带脱字符 peer（`^0.1.1-rc.1`）。npm 自动安装 peer 时会拉进同一元组里更晚的预发布，而那个版本自己的 peer 又和被固定的版本冲突，`npm install` 于是以 `ERESOLVE` 中止。本页早先的版本因此把其中几条称为「发布不完整」。
+`0.1.0-rc.2` – `rc.7`、`0.1.1-rc.1`、`0.1.2-alpha.2` – `alpha.5`、`0.1.5-alpha.1` – `rc.2`、`0.1.6-alpha.1` 和 `0.1.7-alpha.1` 发布的 harness 包带脱字符 peer（`^0.1.1-rc.1`）。npm 自动安装 peer 时会拉进同一元组里更晚的预发布，而那个版本自己的 peer 又和被固定的版本冲突，`npm install` 于是以 `ERESOLVE` 中止。本页早先的版本因此把其中几条称为「发布不完整」。
 
 harness 从来不跑那张图。`@deepseek-ai/dsh` 把它组合的每个包都钉在同一个精确版本上。所以 peer 图失败时（`ERESOLVE`、npm 找不到某个 peer，或 5 分钟内没有结果），扫描和 CI 改用该版本自己的 `@deepseek-ai/dsh` 来安装改指后的副本，这些版本在那里全部通过。
 
