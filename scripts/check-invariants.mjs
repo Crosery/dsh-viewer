@@ -92,13 +92,15 @@ const ADMITTED_TRAINS = [
   '0.1.5-alpha.1', '0.1.5-alpha.2', '0.1.5-rc.1', '0.1.5-rc.2', '0.1.5-rc.3',
   '0.1.6-alpha.1', '0.1.6-alpha.2',
   '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2',
+  '0.2.0-rc.1', '0.2.0-rc.2',
 ]
 /**
  * Builds that must stay outside, under both rules: 0.1.4 was never published;
- * 0.1.8+ and 0.2 wait for a sweep; 0.0.0 and 0.0.2 were never published.
+ * 0.1.8+ waits for a sweep; 0.0.0 and 0.0.2 were never published. 0.2.0 left
+ * this list when its tuple was swept on 0.2.0-rc.2.
  */
 const OUTSIDE = [
-  '0.0.0', '0.0.2-rc.0', '0.1.4-rc.0', '0.1.8-alpha.0', '0.1.8-rc.0', '0.1.8', '0.2.0',
+  '0.0.0', '0.0.2-rc.0', '0.1.4-rc.0', '0.1.8-alpha.0', '0.1.8-rc.0', '0.1.8',
 ]
 const rules = [['default semver (npm, pnpm)', {}], ['includePrerelease (dsh ≥0.1.7 install and boot)', { includePrerelease: true }]]
 /**

@@ -35,6 +35,16 @@ What these trains lack, and why it does not matter, is in [harness-compatibility
 
 Every harness peer admits all 27 versions under both rules. The exit status was 0.
 
+## 0.2.1: the 0.2.0 harness trains
+
+`node scripts/sweep-trains.mjs --versions 0.2.0-rc.1,0.2.0-rc.2`, run on 2026-09-29 (Node 26.8.1, npm 11) on the tree that adds the 0.2.0 tuple to every harness peer:
+
+| Versions | Outcome |
+| --- | --- |
+| `0.2.0-rc.1`, `0.2.0-rc.2` | pass: host tsc, client tsc and 172/172 tests; every harness peer admits both under both rules |
+
+`node scripts/smoke-boot.mjs --dsh 0.2.0-rc.1` and `--dsh 0.2.0-rc.2`, strict (no exemption), on the same tree: harness, pnpm, install, boot, host activation, client graph (66 entries, this plugin present with its inject targets), client load, client exports and client boot in headless Chrome 153 all passed on both.
+
 ## 0.2.1: boot smoke, in headless Chrome
 
 Strict (no exemption), Node 26.7.0, pnpm 11.7.0, headless Google Chrome 153 through playwright-core, one packed `dsh-viewer-0.2.1.tgz` for every row. Each harness is installed `--before` one second after its own `@deepseek-ai/dsh` was published (moved later only past its own stragglers), and the installed tree held no package of a later train. Every stage passed on every row — harness, pnpm, install, boot, host-activation, client-graph, client-load, client-exports and `client-boot`: the app mounted in Chrome with the viewer's module loaded and nothing on the page about the plugin.
