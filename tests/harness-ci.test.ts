@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import semver from 'semver'
 import { FLOOR, graphEvidence, graphFailed, npmErrorCode, pinToolchain, planCells, parseFeed, refusals, registryFailed, sweepStart, tupleHeads } from '../scripts/harness-lib.mjs'
 import {
   blamesPlugin, bootGraphOf, bootPageState, classifyDiagnostics, exportedNames, laterHarnessVersions, maskTokens, membersRead, moduleLines,
@@ -38,6 +39,7 @@ const PUBLISHED = [
   '0.1.5-alpha.1', '0.1.5-alpha.2', '0.1.5-rc.1', '0.1.5-rc.2', '0.1.5-rc.3',
   '0.1.6-alpha.1', '0.1.6-alpha.2',
   '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2',
+  '0.2.0-rc.1', '0.2.0-rc.2',
 ]
 describe('peer admission', () => {
   it('admits every published train under both semver rules, 0.0.1-rc.1 included', () => {
@@ -47,7 +49,7 @@ describe('peer admission', () => {
   })
 
   it('refuses the tuples nobody published, and the next, unverified one', () => {
-    for (const version of ['0.0.0', '0.0.2-rc.1', '0.1.4-rc.0', '0.1.8-alpha.1', '0.1.8', '0.2.0-rc.1']) {
+    for (const version of ['0.0.0', '0.0.2-rc.1', '0.1.4-rc.0', '0.1.8-alpha.1', '0.1.8', '0.2.1-rc.1']) {
       const refused = refusals(version, peers)
       assert.equal(refused.length, peers.length, version)
       assert.ok(refused.every((r: { runtime: boolean; installer: boolean }) => !r.runtime && !r.installer), `${version} must fail both rules`)
@@ -68,13 +70,16 @@ describe('sweep plan', () => {
   })
 
   it('covers every published version from 0.0.1-rc.1, and a newly published one without a code change', () => {
-    const rows = planCells(['sweep'], { ...facts, published: [...PUBLISHED, '0.1.8-alpha.1'] })
-    assert.deepEqual(rows.map((r: { cell: string }) => r.cell), [...PUBLISHED, '0.1.8-alpha.1'])
+    // planCells emits the published versions in ascending order, so one published
+    // below the newest tuple lands before it, not at the end of the list.
+    const published = [...PUBLISHED, '0.1.8-alpha.1']
+    const rows = planCells(['sweep'], { ...facts, published })
+    assert.deepEqual(rows.map((r: { cell: string }) => r.cell), [...published].sort(semver.compare))
   })
 
   it('smokes the floor, each tuple head and every dist-tag or desktop version by default', () => {
     const smoked = planCells(['sweep'], facts).filter((r: { smoke: boolean }) => r.smoke).map((r: { cell: string }) => r.cell)
-    assert.deepEqual(smoked, ['0.0.1-rc.5', '0.1.0-rc.8', FLOOR, '0.1.2-rc.1', '0.1.3-alpha.2', '0.1.5-rc.3', '0.1.6-alpha.2', '0.1.7-alpha.2', '0.1.7-rc.2'])
+    assert.deepEqual(smoked, ['0.0.1-rc.5', '0.1.0-rc.8', FLOOR, '0.1.2-rc.1', '0.1.3-alpha.2', '0.1.5-rc.3', '0.1.6-alpha.2', '0.1.7-alpha.2', '0.1.7-rc.2', '0.2.0-rc.2'])
     assert.equal(planCells(['sweep'], facts, 'none').some((r: { smoke: boolean }) => r.smoke), false)
   })
 
