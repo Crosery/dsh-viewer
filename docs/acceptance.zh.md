@@ -35,6 +35,16 @@
 
 每个 harness peer 在两种规则下都接纳全部 27 个版本。退出码是 0。
 
+## 0.2.1：harness 0.2.0 两条序列
+
+`node scripts/sweep-trains.mjs --versions 0.2.0-rc.1,0.2.0-rc.2`，2026-09-29 在「给每个 harness peer 加上 0.2.0 元组」的代码树上运行（Node 26.8.1、npm 11）：
+
+| 版本 | 结果 |
+| --- | --- |
+| `0.2.0-rc.1`、`0.2.0-rc.2` | 通过：host tsc、client tsc 和 172/172 测试；每个 harness peer 在两种规则下都接纳两者 |
+
+`node scripts/smoke-boot.mjs --dsh 0.2.0-rc.1` 与 `--dsh 0.2.0-rc.2`，严格模式（不给豁免），在同一代码树上：harness、pnpm、install、boot、host 激活、客户端图（66 个 entry，本插件与其 inject 目标都在）、客户端加载、客户端导出、以及无头 Chrome 153 里的客户端启动，两条都全部通过。
+
 ## 0.2.1：启动冒烟，在无头 Chrome 里运行
 
 严格模式（不带豁免），Node 26.7.0、pnpm 11.7.0，通过 playwright-core 驱动无头 Google Chrome 153，每一行装的都是同一个打包好的 `dsh-viewer-0.2.1.tgz`。每个 harness 都以「该版本自己的 `@deepseek-ai/dsh` 发布一秒之后」为 `--before` 安装（只因它自己晚发布的包才往后挪），装好的依赖树里没有任何更晚版本的包。每一行的每个阶段都通过：harness、pnpm、install、boot、host-activation、client-graph、client-load、client-exports 和 `client-boot`——应用在 Chrome 里挂载完成、本插件的模块已加载，页面上没有任何关于本插件的问题。
