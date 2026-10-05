@@ -4,6 +4,18 @@
 
 What was verified end to end, on which harness versions, and how. Every number below came from a running host, not from reasoning about one. The v0.1.1 sections at the end are kept as the record of that release.
 
+## 0.2.2: the 0.2.1 harness train
+
+`node scripts/sweep-trains.mjs --versions 0.2.1-alpha.1`, run on 2026-10-06 (Node 26.8.2, npm 11) on the tree that adds the 0.2.1 tuple to every harness peer:
+
+| Versions | Outcome |
+| --- | --- |
+| `0.2.1-alpha.1` | pass: host tsc, client tsc and 174/174 tests; every harness peer admits it under both rules |
+
+`node scripts/smoke-boot.mjs --dsh 0.2.1-alpha.1`, strict (no exemption), on the same tree: harness, pnpm, install, boot, host activation, client graph (67 entries, this plugin present with its inject targets), client load, client exports and client boot in headless Chrome 153 all passed. Before the range widened, the same smoke refused at `install` with the peer ranges quoted verbatim, and an `--accept-risk` diagnostic run passed every stage — the code worked on the train, only the claim was missing.
+
+Live in a browser: every installable published train, `0.0.1-rc.5` through `0.2.1-alpha.1` (28 of them), rendered all six formats — image, pdf, office, video, audio, html — in a throwaway `DSH_HOME` driven by a synthetic OpenAI-compatible provider calling the real `display_file`, one screenshot per format with a sha256 receipt (168 images). The desktop app (`0.2.0-rc.2` runtime, Electron Node 24.18.1, its bundled pnpm) passed the same nine-stage smoke on its own bytes.
+
 ## 0.2.1: the trains before 0.1.0-rc.8, live
 
 The ranges of 0.2.0 started at `0.1.0-rc.8`, on the reasoning that `dsh-client-ui-renderer` first shipped there. Nobody had run the plugin on an earlier train. These did, in a real browser, with no change to `src/` or `lib/` (`lib/` is byte-identical to v0.2.0's, and 0.2.0's tarball was installed first; the last row repeats the check with 0.2.1's own tarball).

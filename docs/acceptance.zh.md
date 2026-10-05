@@ -4,6 +4,18 @@
 
 在哪些 harness 版本上做过端到端验证、怎么验证的。下面每个数字都来自真实运行的 host，不是对着代码推出来的。末尾的 v0.1.1 各节保留为那次发版的记录。
 
+## 0.2.2：harness 0.2.1 序列
+
+`node scripts/sweep-trains.mjs --versions 0.2.1-alpha.1`，2026-10-06 在「给每个 harness peer 加上 0.2.1 元组」的代码树上运行（Node 26.8.2、npm 11）：
+
+| 版本 | 结果 |
+| --- | --- |
+| `0.2.1-alpha.1` | 通过：host tsc、client tsc 和 174/174 测试；每个 harness peer 在两种规则下都接纳它 |
+
+`node scripts/smoke-boot.mjs --dsh 0.2.1-alpha.1`，严格模式（不给豁免），在同一代码树上：harness、pnpm、install、boot、host 激活、客户端图（67 个 entry，本插件与其 inject 目标都在）、客户端加载、客户端导出、以及无头 Chrome 153 里的客户端启动，全部通过。在范围放宽之前，同一个冒烟在 `install` 阶段被拒、拒绝语逐字引用 peer 范围；一次 `--accept-risk` 豁免诊断则每个阶段都通过——代码在这个版本上能用，缺的只是声明。
+
+浏览器实测：每一个能装上的已发布版本，从 `0.0.1-rc.5` 到 `0.2.1-alpha.1`（共 28 个），都在一次性 `DSH_HOME` 里渲染了全部六种格式——image、pdf、office、video、audio、html——会话由合成的 OpenAI 兼容模型服务驱动、调用真实的 `display_file`，每种格式一张截图、各带 sha256 回执（168 张）。桌面应用（`0.2.0-rc.2` 运行时、Electron Node 24.18.1、自带 pnpm）用它自己的字节通过了同一个九阶段冒烟。
+
 ## 0.2.1：0.1.0-rc.8 之前的版本，实测
 
 0.2.0 的范围从 `0.1.0-rc.8` 起算，理由是 `dsh-client-ui-renderer` 在那里才首次发布。从来没人在更早的版本上跑过本插件。下面这些跑过了，在真实浏览器里，`src/` 和 `lib/` 没有任何改动（`lib/` 与 v0.2.0 逐字节一致，先装的是 0.2.0 的压缩包；最后一行用 0.2.1 自己的压缩包重做了一遍）。

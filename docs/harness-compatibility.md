@@ -4,7 +4,7 @@
 
 ## What this plugin supports
 
-**Web:** every published harness version, `0.0.1-rc.1` through `0.2.0-rc.2`. Every one that can be installed at all, `0.0.1-rc.5` and later, installs, boots and renders the cards. `0.0.1-rc.1` and `0.0.1-rc.2` are admitted too, but nobody can run them: their own `@deepseek-ai/dsh` depends on `@deepseek-ai/dsh-agent-tool-mode`, which was never published, so `npm install @deepseek-ai/dsh@0.0.1-rc.1` answers `E404`. **Desktop app:** `0.1.7-rc.2`, the build its update feed ships today. The desktop app boots the same `@deepseek-ai/dsh` Web app at the same version, so "the desktop version" and "its Web version" are one version.
+**Web:** every published harness version, `0.0.1-rc.1` through `0.2.1-alpha.1`. Every one that can be installed at all, `0.0.1-rc.5` and later, installs, boots and renders the cards. `0.0.1-rc.1` and `0.0.1-rc.2` are admitted too, but nobody can run them: their own `@deepseek-ai/dsh` depends on `@deepseek-ai/dsh-agent-tool-mode`, which was never published, so `npm install @deepseek-ai/dsh@0.0.1-rc.1` answers `E404`. **Desktop app:** `0.1.7-rc.2`, the build its update feed ships today. The desktop app boots the same `@deepseek-ai/dsh` Web app at the same version, so "the desktop version" and "its Web version" are one version.
 
 | Tuple | Versions | Types + tests | Boot smoke | Live, in a browser |
 | --- | --- | --- | --- | --- |
@@ -18,6 +18,7 @@
 | 0.1.6 | `0.1.6-alpha.1`, `0.1.6-alpha.2` | yes | `0.1.6-alpha.2` | — |
 | 0.1.7 | `0.1.7-alpha.1`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2` | yes | `0.1.7-alpha.2`; `0.1.7-rc.2`, from npm and from the desktop app's own bytes | `0.1.7-rc.2`, Web and desktop |
 | 0.2.0 | `0.2.0-rc.1`, `0.2.0-rc.2` | yes | every one | — |
+| 0.2.1 | `0.2.1-alpha.1` | yes | `0.2.1-alpha.1` | `0.2.1-alpha.1` |
 
 "Types + tests" means both typechecks and the whole suite pass with every `@deepseek-ai/dsh-*` devDependency repointed at exactly that version (`node scripts/sweep-trains.mjs`). The boot smoke column is what ran locally for this release, and since the browser stage it includes running the plugin in headless Chrome on each of those versions; CI's weekly sweep and the release gate smoke **every** installable version. The last column is a `display_file` card checked by hand. The evidence for each column is in [acceptance.md](acceptance.md).
 

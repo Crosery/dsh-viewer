@@ -93,6 +93,7 @@ const ADMITTED_TRAINS = [
   '0.1.6-alpha.1', '0.1.6-alpha.2',
   '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2',
   '0.2.0-rc.1', '0.2.0-rc.2',
+  '0.2.1-alpha.1',
 ]
 /**
  * Builds that must stay outside, under both rules: 0.1.4 was never published;
