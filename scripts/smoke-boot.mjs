@@ -233,7 +233,14 @@ function installHarness(spec, dir) {
     return { ok: false, retry: false, output, how, settled: r.error?.code !== 'ETIMEDOUT' && r.signal === null }
   }
 
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  // One attempt per cutoff move: npm names a single refused package per install, and a
+  // train's closure can hold several packages published after its own @deepseek-ai/dsh
+  // — 0.0.1-rc.5's fs, sandbox, shell, subprocess and workflow went out up to two
+  // minutes late, and the CI runner exhausted its 8 attempts with late packages still
+  // refused, twice, failing the v0.2.1 release gate. 24 is the same lazy advance with
+  // room; the stray check below still bounds what a moved cutoff may admit.
+  let attempt = 0
+  for (; attempt < 24; attempt += 1) {
     freshProject(dir)
     const first = install([...common(), spec], { timeout: limit })
     if (first.retry) continue
@@ -265,7 +272,7 @@ function installHarness(spec, dir) {
     }
     return describe(how)
   }
-  fail('harness', `npm install ${spec} kept refusing its own packages as unpublished before ${before}`)
+  fail('harness', `npm install ${spec} kept refusing its own packages as unpublished before ${before} (cutoff moved ${attempt} times)`)
 }
 
 /** Boot `dsh --profile web` in `dshHome`; resolves once the URL is printed and survived, or it failed. */
