@@ -4,7 +4,7 @@
 
 What was verified end to end, on which harness versions, and how. Every number below came from a running host, not from reasoning about one. The v0.1.1 sections at the end are kept as the record of that release.
 
-## 0.2.2: the 0.2.1 harness train
+## 0.2.1: the 0.2.1 harness train
 
 `node scripts/sweep-trains.mjs --versions 0.2.1-alpha.1`, run on 2026-10-06 (Node 26.8.2, npm 11) on the tree that adds the 0.2.1 tuple to every harness peer:
 

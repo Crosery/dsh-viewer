@@ -4,7 +4,7 @@
 
 在哪些 harness 版本上做过端到端验证、怎么验证的。下面每个数字都来自真实运行的 host，不是对着代码推出来的。末尾的 v0.1.1 各节保留为那次发版的记录。
 
-## 0.2.2：harness 0.2.1 序列
+## 0.2.1：harness 0.2.1 序列
 
 `node scripts/sweep-trains.mjs --versions 0.2.1-alpha.1`，2026-10-06 在「给每个 harness peer 加上 0.2.1 元组」的代码树上运行（Node 26.8.2、npm 11）：
 
