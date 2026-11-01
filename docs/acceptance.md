@@ -4,6 +4,21 @@
 
 What was verified end to end, on which harness versions, and how. Every number below came from a running host, not from reasoning about one. The v0.1.1 sections at the end are kept as the record of that release.
 
+## 0.3.0: following upstream, 2026-11-01 UTC
+
+`node scripts/follow-upstream.mjs --apply` recorded 2 previously unrecorded `@deepseek-ai/dsh` versions on 2026-11-01 UTC (Node 26.7.0), and added the `0.2.2` tuple to every harness peer. `node scripts/sweep-trains.mjs --versions 0.2.1-rc.5,0.2.2-alpha.2` produced:
+
+| Version | Outcome |
+| --- | --- |
+| `0.2.1-rc.5` | pass: host tsc, client tsc, 209/209 tests |
+| `0.2.2-alpha.2` | pass: host tsc, client tsc, 209/209 tests |
+
+No plugin source change was needed, and no package had to stay at this repository's pin. These trains were not rendered in a browser by hand.
+
+Strict smoke (no exemption) on each version, `node scripts/smoke-boot.mjs --dsh 0.2.1-rc.5` and `node scripts/smoke-boot.mjs --dsh 0.2.2-alpha.2`: all nine stages passed on both — harness, pnpm, install, boot, host activation, client graph, client load, client exports and client boot in headless Chrome.
+
+The current desktop `nightly` feed distributes `0.2.1-rc.5` (released 2026-10-29). The smoke above installed its npm Web runtime; it does not establish a smoke of the current desktop app's own bytes. That desktop-bytes check remains pending in the release gate. The older desktop evidence below is retained as history.
+
 ## 0.2.1: the 0.2.1 harness train
 
 `node scripts/sweep-trains.mjs --versions 0.2.1-alpha.1`, run on 2026-10-06 (Node 26.8.2, npm 11) on the tree that adds the 0.2.1 tuple to every harness peer:
@@ -14,7 +29,22 @@ What was verified end to end, on which harness versions, and how. Every number b
 
 `node scripts/smoke-boot.mjs --dsh 0.2.1-alpha.1`, strict (no exemption), on the same tree: harness, pnpm, install, boot, host activation, client graph (67 entries, this plugin present with its inject targets), client load, client exports and client boot in headless Chrome 153 all passed. Before the range widened, the same smoke refused at `install` with the peer ranges quoted verbatim, and an `--accept-risk` diagnostic run passed every stage — the code worked on the train, only the claim was missing.
 
-Live in a browser: every installable published train, `0.0.1-rc.5` through `0.2.1-alpha.1` (28 of them), rendered all six formats — image, pdf, office, video, audio, html — in a throwaway `DSH_HOME` driven by a synthetic OpenAI-compatible provider calling the real `display_file`, one screenshot per format with a sha256 receipt (168 images). The desktop app (`0.2.0-rc.2` runtime, Electron Node 24.18.1, its bundled pnpm) passed the same nine-stage smoke on its own bytes.
+The trains published after `0.2.1-alpha.1` were swept on 2026-10-27 (Node 26.7.0, npm 11.19.0; `node scripts/sweep-trains.mjs --versions 0.2.1-alpha.2,0.2.1-alpha.3,0.2.1-alpha.4,0.2.1-alpha.5,0.2.1-rc.1,0.2.1-rc.2,0.2.1-rc.3,0.2.1-rc.4`). No source change was needed, and no package was kept at this repository's pin:
+
+| Version | Outcome |
+| --- | --- |
+| `0.2.1-alpha.2` | pass: host tsc, client tsc, 174/174 tests; every peer admits it under both rules |
+| `0.2.1-alpha.3` | pass: host tsc, client tsc, 174/174 tests; every peer admits it under both rules |
+| `0.2.1-alpha.4` | pass: host tsc, client tsc, 174/174 tests; every peer admits it under both rules |
+| `0.2.1-alpha.5` | pass: host tsc, client tsc, 174/174 tests; every peer admits it under both rules |
+| `0.2.1-rc.1` | pass: host tsc, client tsc, 174/174 tests; every peer admits it under both rules |
+| `0.2.1-rc.2` | pass: host tsc, client tsc, 174/174 tests; every peer admits it under both rules |
+| `0.2.1-rc.3` | pass: host tsc, client tsc, 174/174 tests; every peer admits it under both rules |
+| `0.2.1-rc.4` | pass: host tsc, client tsc, 174/174 tests; every peer admits it under both rules |
+
+Boot smoke on the same tree, 2026-10-27, strict (no exemption) in both cases, nine stages each: `node scripts/smoke-boot.mjs --dsh 0.2.1-rc.4` — the newest build and npm's `next` — passed with a 71-entry client graph, and `node scripts/smoke-boot.mjs --dsh 0.2.1-rc.2` — npm's `latest`, installed as released with `--before 2026-10-17T08:51:12.767Z` — passed with a 70-entry graph, this plugin present with its inject targets in both, and the app mounted in headless Chrome 153 with its module loaded and nothing on the page about it.
+
+Live in a browser: every installable train published up to `0.2.1-alpha.1` — `0.0.1-rc.5` through `0.2.1-alpha.1`, 28 of them — rendered all six formats — image, pdf, office, video, audio, html — in a throwaway `DSH_HOME` driven by a synthetic OpenAI-compatible provider calling the real `display_file`, one screenshot per format with a sha256 receipt (168 images). The eight trains published after it were not rendered by hand; their card path is covered by the sweep and the smoke above. The desktop app (`0.2.0-rc.2` runtime, Electron Node 24.18.1, its bundled pnpm) passed the same nine-stage smoke on its own bytes.
 
 ## 0.2.1: the trains before 0.1.0-rc.8, live
 

@@ -27,8 +27,28 @@ on:
         description: 'Existing tag to build and attach to'
         required: true
         type: string
+      publish:
+        description: 'Publish the gate tarball to npm through Trusted Publishing'
+        default: true
+        type: boolean
+  # Called by `.github/workflows/upstream-follow.yml` once it has recorded a
+  # train and tagged the commit. A tag pushed with GITHUB_TOKEN starts no run of
+  # its own, so the gate is invoked directly; it is the same gate either way.
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag to build, gate and release'
+        required: true
+        type: string
+      publish:
+        description: 'Publish the gate tarball to npm through Trusted Publishing'
+        default: true
+        type: boolean
 
+# npm Trusted Publishing exchanges this run's GitHub OIDC identity for a
+# short-lived publish credential; no long-lived NPM_TOKEN is needed.
 permissions:
+  id-token: write
   contents: read
 
 jobs:
@@ -43,7 +63,7 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
           cache: npm
@@ -116,6 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
+      id-token: write
       contents: write
     steps:
       - uses: actions/checkout@v4
@@ -123,10 +144,11 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
 
       - name: Fetch the tarball the gate smoked
         uses: actions/download-artifact@v4
@@ -167,35 +189,16 @@ jobs:
             gh release create "$TAG" dsh-viewer.tgz --generate-notes --notes-file "$RUNNER_TEMP/notes.md" --title "$TAG"
           fi
 
-      # Opt-in, and off by default.
-      #
-      # A configured token is not evidence that this package can be published:
-      # the first release run with a token present got `404 Not Found - PUT
-      # https://registry.npmjs.org/@crosery%2fdsh-viewer`, which is how npm
-      # reports an unauthorized scoped publish. Attempting it on every tag turns
-      # each release red for a reason that is not about the release.
-      #
-      # Turn it on by setting the repository variable NPM_PUBLISH=true (Settings
-      # → Secrets and variables → Actions → Variables) once the npm scope exists
-      # and NPM_TOKEN can publish to it. It publishes the smoked tarball itself,
-      # not a fresh pack of the tree.
-      #
-      # The token lives on this step only. The `if` can read the variable but
-      # not this step's env — GitHub evaluates a step's `if` before applying its
-      # `env` — so the missing-token check is in the script, and a variable set
-      # without a token warns and skips instead of publishing with no
-      # credentials. It checks NPM_TOKEN, not NODE_AUTH_TOKEN: setup-node@v4
-      # exports a placeholder NODE_AUTH_TOKEN (`XXXXX-XXXXX-XXXXX-XXXXX`) to
-      # every later step when none is set, which a check on that name would
-      # take for a token. The .npmrc setup-node wrote reads NODE_AUTH_TOKEN only
-      # when npm publishes, so no other step needs it.
+      # Bind npm Trusted Publishers to Crosery/dsh-viewer and each caller:
+      # release.yml for direct runs, upstream-follow.yml for reusable calls.
+      # npm checks the caller workflow name; both must allow direct publishing.
+      # The package is published from this exact tarball after the compatibility
+      # gate; OIDC supplies a short-lived credential and provenance attestation.
+      # `publish=false` is the bootstrap mode: pack, gate and the GitHub
+      # release still complete, while npm remains untouched so the tarball can
+      # be downloaded for the one-time local first publish.
       - name: Publish to npm
-        if: ${{ vars.NPM_PUBLISH == 'true' }}
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: ${{ inputs.publish || (github.event_name == 'push' && !contains(toJSON(inputs), '"publish"')) }}
         run: |
-          if [ -z "$NPM_TOKEN" ]; then
-            echo "::warning::NPM_PUBLISH is true but the NPM_TOKEN secret is not set; skipping npm publish"
-            exit 0
-          fi
-          NODE_AUTH_TOKEN="$NPM_TOKEN" npm publish dsh-viewer.tgz --access public
+          npm --version | grep -q '^1[1-9]\.' || npm i -g npm@latest
+          npm publish dsh-viewer.tgz --access public --provenance

@@ -4,6 +4,21 @@
 
 在哪些 harness 版本上做过端到端验证、怎么验证的。下面每个数字都来自真实运行的 host，不是对着代码推出来的。末尾的 v0.1.1 各节保留为那次发版的记录。
 
+## 0.3.0：追随上游，2026-11-01 UTC
+
+`node scripts/follow-upstream.mjs --apply` 在 2026-11-01 UTC（Node 26.7.0）记录了 2 个此前未记录的 `@deepseek-ai/dsh` 版本，并给每个 harness peer 加上 `0.2.2` 元组。`node scripts/sweep-trains.mjs --versions 0.2.1-rc.5,0.2.2-alpha.2` 的结果：
+
+| 版本 | 结果 |
+| --- | --- |
+| `0.2.1-rc.5` | 通过：host tsc、client tsc、209/209 测试 |
+| `0.2.2-alpha.2` | 通过：host tsc、client tsc、209/209 测试 |
+
+没有改插件源码，也没有任何包需要留在本仓库的钉子上。这些版本没有人工浏览器实测。
+
+两个版本各自的严格冒烟（不给豁免），`node scripts/smoke-boot.mjs --dsh 0.2.1-rc.5` 与 `node scripts/smoke-boot.mjs --dsh 0.2.2-alpha.2`：两者九个阶段全部通过——harness、pnpm、install、boot、host 激活、客户端图、客户端加载、客户端导出，以及无头 Chrome 里的客户端启动。
+
+当前桌面版 `nightly` 更新源分发 `0.2.1-rc.5`（2026-10-29 发布）。上面的冒烟安装的是同版本 npm Web 运行时，不能据此认定当前桌面应用自带字节已通过冒烟；desktop-bytes 检查仍待 release 门禁完成。下方较早的桌面证据保留为历史记录。
+
 ## 0.2.1：harness 0.2.1 序列
 
 `node scripts/sweep-trains.mjs --versions 0.2.1-alpha.1`，2026-10-06 在「给每个 harness peer 加上 0.2.1 元组」的代码树上运行（Node 26.8.2、npm 11）：
@@ -14,7 +29,22 @@
 
 `node scripts/smoke-boot.mjs --dsh 0.2.1-alpha.1`，严格模式（不给豁免），在同一代码树上：harness、pnpm、install、boot、host 激活、客户端图（67 个 entry，本插件与其 inject 目标都在）、客户端加载、客户端导出、以及无头 Chrome 153 里的客户端启动，全部通过。在范围放宽之前，同一个冒烟在 `install` 阶段被拒、拒绝语逐字引用 peer 范围；一次 `--accept-risk` 豁免诊断则每个阶段都通过——代码在这个版本上能用，缺的只是声明。
 
-浏览器实测：每一个能装上的已发布版本，从 `0.0.1-rc.5` 到 `0.2.1-alpha.1`（共 28 个），都在一次性 `DSH_HOME` 里渲染了全部六种格式——image、pdf、office、video、audio、html——会话由合成的 OpenAI 兼容模型服务驱动、调用真实的 `display_file`，每种格式一张截图、各带 sha256 回执（168 张）。桌面应用（`0.2.0-rc.2` 运行时、Electron Node 24.18.1、自带 pnpm）用它自己的字节通过了同一个九阶段冒烟。
+`0.2.1-alpha.1` 之后发布的那些版本在 2026-10-27 扫过（Node 26.7.0、npm 11.19.0；`node scripts/sweep-trains.mjs --versions 0.2.1-alpha.2,0.2.1-alpha.3,0.2.1-alpha.4,0.2.1-alpha.5,0.2.1-rc.1,0.2.1-rc.2,0.2.1-rc.3,0.2.1-rc.4`）。没有改源码，也没有任何包需要留在本仓库的钉子上：
+
+| 版本 | 结果 |
+| --- | --- |
+| `0.2.1-alpha.2` | 通过：host tsc、client tsc、174/174 测试；每个 peer 在两种规则下都接纳它 |
+| `0.2.1-alpha.3` | 通过：host tsc、client tsc、174/174 测试；每个 peer 在两种规则下都接纳它 |
+| `0.2.1-alpha.4` | 通过：host tsc、client tsc、174/174 测试；每个 peer 在两种规则下都接纳它 |
+| `0.2.1-alpha.5` | 通过：host tsc、client tsc、174/174 测试；每个 peer 在两种规则下都接纳它 |
+| `0.2.1-rc.1` | 通过：host tsc、client tsc、174/174 测试；每个 peer 在两种规则下都接纳它 |
+| `0.2.1-rc.2` | 通过：host tsc、client tsc、174/174 测试；每个 peer 在两种规则下都接纳它 |
+| `0.2.1-rc.3` | 通过：host tsc、client tsc、174/174 测试；每个 peer 在两种规则下都接纳它 |
+| `0.2.1-rc.4` | 通过：host tsc、client tsc、174/174 测试；每个 peer 在两种规则下都接纳它 |
+
+同一代码树上的启动冒烟，2026-10-27，两次都是严格模式（不给豁免），各九个阶段：`node scripts/smoke-boot.mjs --dsh 0.2.1-rc.4`（最新构建，也是 npm 的 `next`）拿到 71 个 entry 的客户端图并通过；`node scripts/smoke-boot.mjs --dsh 0.2.1-rc.2`（npm 的 `latest`，按发布时的样子装，`--before 2026-10-17T08:51:12.767Z`）拿到 70 个 entry 的客户端图并通过——两者本插件与其 inject 目标都在，应用也在无头 Chrome 153 里挂载，页面没有任何关于它的问题。
+
+浏览器实测：截止 `0.2.1-alpha.1` 发布的每一个能装上的版本——`0.0.1-rc.5` 到 `0.2.1-alpha.1`，共 28 个——都在一次性 `DSH_HOME` 里渲染了全部六种格式——image、pdf、office、video、audio、html——会话由合成的 OpenAI 兼容模型服务驱动、调用真实的 `display_file`，每种格式一张截图、各带 sha256 回执（168 张）。它之后发布的八个版本没有人工渲染过，卡片路径由上面的扫描和冒烟覆盖。桌面应用（`0.2.0-rc.2` 运行时、Electron Node 24.18.1、自带 pnpm）用它自己的字节通过了同一个九阶段冒烟。
 
 ## 0.2.1：0.1.0-rc.8 之前的版本，实测
 

@@ -8,6 +8,10 @@
 
 [English](README.md) · [中文](README.zh.md) · MIT
 
+[![npm 版本](https://img.shields.io/npm/v/@crosery/dsh-viewer)](https://www.npmjs.com/package/@crosery/dsh-viewer)
+[![npm 月下载量](https://img.shields.io/npm/dm/@crosery/dsh-viewer)](https://www.npmjs.com/package/@crosery/dsh-viewer)
+[![Harness 兼容性](https://github.com/Crosery/dsh-viewer/actions/workflows/harness-compat.yml/badge.svg)](https://github.com/Crosery/dsh-viewer/actions/workflows/harness-compat.yml)
+
 </div>
 
 ---
@@ -231,10 +235,10 @@ v0.1.1 时在真实环境跑通（`dsh 0.1.1-rc.2`，Node 26.7.0，claude-sonnet
 
 | 在哪 | 版本 | 证据 |
 | --- | --- | --- |
-| Web（`dsh --profile web`） | 每一个已发布版本，从 `0.0.1-rc.1` 到 `0.2.1-alpha.1`，包括 npm 的 `latest`（`0.2.0-rc.2`）、`next`（`0.2.0-rc.2`）和 `alpha`（`0.2.1-alpha.1`）。`0.0.1-rc.1` 与 `rc.2` 也被接纳，但它们自己的 harness 谁都装不上 | 每个能装上的版本上两份类型检查和全部 174 个测试；打包后插件在每个能装上的版本（共 28 个）上的启动冒烟，并在无头 Chrome 里实际运行；`0.0.1-rc.5`、`0.1.0-rc.2`、`0.1.0-rc.6`、`0.1.7-rc.2` 与 `0.2.1-alpha.1` 上的浏览器实测（v0.1.1 时也在 `0.1.1-rc.2` 与 `0.1.5-rc.2` 上实测过） |
-| 桌面版 | `0.1.7-rc.2`——它唯一的频道 `nightly` | 在应用自带运行时上的启动冒烟；macOS 桌面窗口里的实测 |
+| Web（`dsh --profile web`） | 每一个已发布版本，从 `0.0.1-rc.1` 到 `0.2.2-alpha.2`，包括 npm 的 `latest`（`0.2.1-rc.5`）、`next`（`0.2.1-rc.5`）和 `alpha`（`0.2.2-alpha.2`）。`0.0.1-rc.1` 与 `rc.2` 也被接纳，但它们自己的 harness 谁都装不上 | 早期版本的历史扫描与冒烟见验收记录；本次更新于 2026-11-01 UTC 在 `0.2.1-rc.5` 和 `0.2.2-alpha.2` 上分别通过两份类型检查、209/209 测试与严格九阶段冒烟。CI 每周扫描和 release 门禁覆盖全部 38 个可安装版本；`0.0.1-rc.5`、`0.1.0-rc.2`、`0.1.0-rc.6`、`0.1.7-rc.2` 与 `0.2.1-alpha.1` 上的浏览器实测（v0.1.1 时也在 `0.1.1-rc.2` 与 `0.1.5-rc.2` 上实测过） |
+| 桌面版 | 当前 `nightly` 更新源：`0.2.1-rc.5`（2026-10-29 发布） | 同版本 npm Web 运行时严格冒烟通过；当前桌面版字节等待 release 门禁验证。历史桌面运行时冒烟与 macOS 窗口实测：`0.1.7-rc.2` |
 
-peer 范围恰好接纳上面这些支持，每个元组一组比较器，无论按 npm 的 semver 规则，还是按 harness 从 0.1.7 起自己采用的「包含预发布」规则。`0.1.0-rc.8` 之前的版本前端更老，没有 `dsh-client-ui-renderer`；本插件只需要其中的 `slots` 和 `locale` 两个服务，每个版本都有。`0.1.8`、`0.2.2` 及以后等 CI 验证过才接纳。
+peer 范围恰好接纳上面这些支持，每个元组一组比较器，无论按 npm 的 semver 规则，还是按 harness 从 0.1.7 起自己采用的「包含预发布」规则。`0.1.0-rc.8` 之前的版本前端更老，没有 `dsh-client-ui-renderer`；本插件只需要其中的 `slots` 和 `locale` 两个服务，每个版本都有。`0.1.8`、`0.2.3` 等未验证元组等 CI 验证过才接纳。
 
 CI 负责让这份声明保持真实。每个 pull request 都会在钉住的版本、`0.1.1-rc.2` 最低线和桌面版当天分发的版本上，跑类型检查、测试、peer 接纳检查，以及打包后插件的真实启动，并在无头 Chrome 里把它跑起来。每天的任务对桌面版和 npm 的 `latest`、`next`、`alpha` 重复这些检查，并在 macOS 上对桌面版压缩包本身再跑一次冒烟。每周的任务扫描每一个已发布的 harness 版本，在其中每个能装上的版本上启动并运行本插件，所以新版本不需要任何人手动添加就会被测到。失败会开一个 `upstream-drift` issue，第一次全绿的运行会把它关掉。发版也以同样的检查为门禁。详见 [docs/harness-compatibility.zh.md](docs/harness-compatibility.zh.md)。
 

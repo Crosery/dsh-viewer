@@ -93,7 +93,9 @@ const ADMITTED_TRAINS = [
   '0.1.6-alpha.1', '0.1.6-alpha.2',
   '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2',
   '0.2.0-rc.1', '0.2.0-rc.2',
-  '0.2.1-alpha.1',
+  '0.2.1-alpha.1', '0.2.1-alpha.2', '0.2.1-alpha.3', '0.2.1-alpha.4', '0.2.1-alpha.5', '0.2.1-rc.1',
+  '0.2.1-rc.2', '0.2.1-rc.3', '0.2.1-rc.4', '0.2.1-rc.5',
+  '0.2.2-alpha.2',
 ]
 /**
  * Builds that must stay outside, under both rules: 0.1.4 was never published;
@@ -142,6 +144,9 @@ for (const file of ['docs/harness-compatibility.md', 'docs/harness-compatibility
   const text = read(file)
   const unlisted = ADMITTED_TRAINS.filter((train) => !text.includes(`\`${train}\``))
   if (unlisted.length > 0) fail(file, `does not list admitted trains: ${unlisted.join(', ')}`)
+  const documentedRange = /```text\n([^\n]+)\n```/.exec(text)?.[1]
+  const peerRange = pkg.peerDependencies['@deepseek-ai/dsh-tools']
+  if (documentedRange !== peerRange) fail(file, 'the documented peer range differs from package.json')
 }
 notes.push(`peer ranges: ${ADMITTED_TRAINS.length} published trains admitted and ${OUTSIDE.length} outside builds refused, under both semver rules, one comparator set per tuple`)
 

@@ -1,0 +1,218 @@
+# Follow `@deepseek-ai/dsh`: record the trains upstream publishes, and hand a
+# verified tree to the release gate.
+#
+# The daily compatibility run answers "does the plugin still work on what
+# upstream shipped". This one answers the other half — "is that recorded" —
+# and does what a person did by hand for every train so far:
+#
+#   scripts/follow-upstream.mjs --check   what npm lists and this repository
+#                                         does not: the versions, the tuples,
+#                                         and whether a dist-tag points at one
+#   --apply                               widen every harness peer range for a
+#                                         new tuple, sweep each new version
+#                                         (types, tests, admission) and
+#                                         boot-smoke the head of each tuple it
+#                                         touched, then write the admitted
+#                                         list, the CI fixtures, the support
+#                                         table, the acceptance record, the
+#                                         README numbers and the version bump.
+#                                         A failed stage restores the manifest
+#                                         and writes nothing.
+#
+# Nothing is recorded on trust: `npm run check` runs inside `--apply` and again
+# here, `npm test` and `check:dist` run here as they would on a push, and the
+# commit that lands on `main` is the tree that passed them.
+#
+# A push made with GITHUB_TOKEN starts no workflow of its own — including the
+# tag push below — so this job runs the checks a push to `main` would, and the
+# release gate is invoked as a called workflow rather than by the tag event.
+# The gate is unchanged and still the only thing that attaches or publishes:
+# the same tarball packed once, boot-smoked on every installable train, and
+# published to npm through Trusted Publishing with the workflow's GitHub OIDC
+# identity after the one-time bootstrap (docs/releasing.md).
+#
+# After recording (or finding nothing new), check the exact plugin version on
+# npm. An unpublished version remains pending, so a failed gate or publish is
+# retried on the next daily run even when upstream has not changed again.
+# Existing tags must point to this verified commit; no tag is ever overwritten.
+name: Follow upstream
+
+on:
+  schedule:
+    - cron: '41 7 * * *'   # after the daily compatibility run
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Report what is unrecorded, write and commit nothing'
+        default: false
+        type: boolean
+      release:
+        description: 'Tag and run the release gate for what was recorded'
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+# Two follows at once would race on the same commit.
+concurrency:
+  group: follow-upstream
+  cancel-in-progress: false
+
+jobs:
+  follow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: write
+    outputs:
+      recorded: ${{ steps.record.outputs.changed }}
+      pending: ${{ steps.pending.outputs.pending }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        timeout-minutes: 5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        timeout-minutes: 10
+
+      - name: What upstream published
+        id: check
+        timeout-minutes: 10
+        run: node scripts/follow-upstream.mjs --check
+
+      - name: Verify and record
+        id: record
+        if: ${{ steps.check.outputs.changed == 'true' && !inputs.dry-run }}
+        timeout-minutes: 180
+        run: node scripts/follow-upstream.mjs --apply
+
+      # The checks a push to main would trigger. Nothing here is skipped.
+      - name: What a push would trigger
+        if: ${{ steps.record.outputs.changed == 'true' }}
+        timeout-minutes: 30
+        run: |
+          npm run typecheck
+          npm test
+          npm run check
+          npm run check:dist
+          npm run build
+          if [ -n "$(git status --porcelain -- lib)" ]; then
+            git status --porcelain -- lib
+            echo "::error::the recorded tree does not build to the committed lib/"
+            exit 1
+          fi
+
+      - name: Commit
+        if: ${{ steps.record.outputs.changed == 'true' }}
+        timeout-minutes: 10
+        env:
+          RECORDED: ${{ steps.record.outputs.new }}
+          VERSION: ${{ steps.record.outputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -F - <<MSG
+          chore: follow @deepseek-ai/dsh to ${VERSION}
+
+          Recorded ${RECORDED} after a sweep and a boot smoke on each tuple the
+          ranges touched. Version ${VERSION} is what the release gate sees.
+          MSG
+          git push origin HEAD:main
+
+      # Check after the actual recording, not its earlier plan: npm and its
+      # dist-tags can move while verification runs. Pending releases also retry
+      # when there was nothing new to record today.
+      - name: Check the pending npm release
+        id: pending
+        if: ${{ inputs.dry-run != true }}
+        timeout-minutes: 5
+        run: node scripts/release-pending.mjs
+
+      # The tag itself starts no run (GITHUB_TOKEN); the gate below is called.
+      # release-pending refuses an existing tag that is not at this commit.
+      - name: Create or reuse the pending tag
+        id: tag
+        if: ${{ steps.pending.outputs.pending == 'true' && inputs.dry-run != true && (github.event_name == 'schedule' || inputs.release) }}
+        timeout-minutes: 5
+        env:
+          TAG: ${{ steps.pending.outputs.tag }}
+          CREATE_TAG: ${{ steps.pending.outputs.create_tag }}
+        run: |
+          if [ "$CREATE_TAG" = "true" ]; then git tag "$TAG"; fi
+          git push origin "$TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Pending npm release"
+            echo
+            echo "Version \`$TAG\` is not on npm; its verified tag is ready for the release gate."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: follow
+    if: ${{ needs.follow.outputs.tag != '' }}
+    permissions:
+      id-token: write
+      contents: write
+      issues: write
+      actions: read
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.follow.outputs.tag }}
+      publish: true
+
+  report:
+    needs: [follow, release]
+    if: ${{ always() && inputs.dry-run != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Report following or release failures
+        uses: actions/github-script@v7
+        env:
+          FOLLOW_RESULT: ${{ needs.follow.result }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          PENDING: ${{ needs.follow.outputs.pending }}
+          TAG: ${{ needs.follow.outputs.tag }}
+        with:
+          script: |
+            const title = 'Upstream follow or npm release failed'
+            const { owner, repo } = context.repo
+            const results = { follow: process.env.FOLLOW_RESULT, release: process.env.RELEASE_RESULT }
+            const failed = Object.entries(results).filter(([, result]) => ['failure', 'cancelled'].includes(result))
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'all', per_page: 100 })
+            const issue = issues.find((item) => !item.pull_request && item.title === title)
+            const url = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`
+            if (failed.length > 0) {
+              const body = [
+                `The upstream follow/release run failed: ${url}`,
+                '',
+                ...Object.entries(results).map(([job, result]) => `- ${job}: ${result}`),
+                ...(process.env.TAG ? [`- pending tag: \`${process.env.TAG}\``] : []),
+                '',
+                'The next daily run checks the exact current package version on npm and retries a pending release, even without new upstream versions. Registry errors fail the check; conflicting tags are never overwritten.',
+              ].join('\n')
+              if (issue) {
+                if (issue.state !== 'open') await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'open' })
+                await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body })
+              } else {
+                await github.rest.issues.create({ owner, repo, title, body })
+              }
+              core.warning(`Follow/release failure reported: ${failed.map(([job]) => job).join(', ')}`)
+            } else if (issue?.state === 'open' && results.follow === 'success' && (results.release === 'success' || process.env.PENDING === 'false')) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `Following and any pending release completed without failure: ${url}` })
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' })
+            }

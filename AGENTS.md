@@ -26,6 +26,7 @@ npm run build && grep -o 'require("[^"]*")' lib/client.js | sort -u
 | 写提交信息、开 PR、CI 红了 | [docs/pull-requests.zh.md](docs/pull-requests.zh.md) · [en](docs/pull-requests.md) |
 | 发版、打 tag、发 npm、提插件市场 | [docs/releasing.zh.md](docs/releasing.zh.md) · [en](docs/releasing.md) |
 | 上游 harness 变了、改 peer 范围、收到 `upstream-drift` issue | [docs/harness-compatibility.zh.md](docs/harness-compatibility.zh.md) · [en](docs/harness-compatibility.md) |
+| 自动追随上游（`scripts/follow-upstream.mjs`、`upstream-follow.yml`）、改自动发版 | [docs/releasing.zh.md](docs/releasing.zh.md) · [en](docs/releasing.md) |
 
 ## 环境
 

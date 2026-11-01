@@ -79,16 +79,19 @@ function prepare(version, manifest) {
   const stamp = join(dir, '.sweep-installed')
   mkdirSync(dir, { recursive: true })
   // Source is refreshed on every run; the install only when the pins changed.
-  for (const entry of ['src', 'tests', 'scripts']) {
+  for (const entry of ['src', 'tests', 'scripts', 'docs', 'assets', 'lib', '.github']) {
     rmSync(join(dir, entry), { recursive: true, force: true })
     cpSync(join(root, entry), join(dir, entry), { recursive: true })
   }
-  for (const file of ['tsconfig.json', 'tsconfig.client.json', 'cordis.patch.yml']) cpSync(join(root, file), join(dir, file))
+  for (const file of ['tsconfig.json', 'tsconfig.client.json', 'cordis.patch.yml', 'package-lock.json', 'README.md', 'README.zh.md', 'screenshots.json', 'LICENSE', '.gitignore']) cpSync(join(root, file), join(dir, file))
   if (!reinstall && existsSync(stamp)) {
     const [pins, via = 'peer graph', installed] = readFileSync(stamp, 'utf8').split('\n')
     if (pins === wanted) {
-      // Keep the manifest the reused install was made from.
-      writeFileSync(join(dir, 'package.json'), installed ?? JSON.stringify(manifest, null, 2) + '\n')
+      // Reuse installed dependency pins, but check the current plugin contract.
+      // A cached manifest must not restore peer ranges from before --apply
+      // widened them, or the new train's own fixture checks reject stale peers.
+      const previous = installed === undefined ? manifest : JSON.parse(installed)
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ ...previous, ...manifest, devDependencies: previous.devDependencies }, null, 2) + '\n')
       return { ok: true, dir, reused: true, via, output: '' }
     }
   }
