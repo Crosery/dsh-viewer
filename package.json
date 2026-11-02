@@ -1,6 +1,6 @@
 {
   "name": "@crosery/dsh-viewer",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Renders images, video, audio, PDF and Office documents inline in the DeepSeek Harness web UI and desktop app through a display_file tool, streaming bytes over a signed HTTP route with range support.",
   "keywords": [
     "dsh",
@@ -18,6 +18,7 @@
     "xlsx",
     "pptx"
   ],
+  "icon": "assets/icon.png",
   "homepage": "https://github.com/Crosery/dsh-viewer#readme",
   "repository": {
     "type": "git",

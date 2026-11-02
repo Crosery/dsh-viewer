@@ -10,7 +10,7 @@
  * gate. Prints a GitHub-flavoured summary when running in Actions.
  */
 
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import semver from 'semver'
@@ -168,6 +168,18 @@ if (existsSync(join(root, 'screenshots.json'))) {
   }
   if (shots.length < 1 || shots.length > 8) fail('screenshots.json', `declares ${shots.length} images (allowed: 1-8)`)
   notes.push(`screenshots: ${shots.length}`)
+}
+
+// Installed-plugin rows read package.json.icon, independently of the market's
+// remote tile. The README logo is too large for DSH's 256 KiB metadata budget.
+if (typeof pkg.icon !== 'string' || !/^assets\/[^/]+\.(svg|png|jpe?g|webp)$/i.test(pkg.icon)) {
+  fail('package.json', 'declare a package-local icon under assets/ for the native installed-plugin list')
+} else if (!existsSync(join(root, pkg.icon))) {
+  fail('package.json', `the declared icon is missing: ${pkg.icon}`)
+} else {
+  const icon = statSync(join(root, pkg.icon))
+  if (!icon.isFile() || icon.size > 256 * 1024) fail('package.json', 'the native plugin icon must be a regular image file of at most 256 KiB')
+  else notes.push(`native plugin icon: ${pkg.icon}, ${icon.size} bytes`)
 }
 
 // 6. Without cordis.patch.yml naming this exact package, dsh installs the

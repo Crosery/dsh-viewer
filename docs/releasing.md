@@ -111,4 +111,6 @@ npm publishing is optional for listing. The market discovers the npm mapping fro
 
 An optional `icon:` in the market entry points to one GitHub-hosted HTTPS raster (`png`, `jpg`, `jpeg` or `webp`); a square image works best at the approximately 96px tile size. SVG and third-party image hosts are refused. Without an icon, storefronts fall back to the owner's GitHub avatar.
 
+DSH's native installed-plugin list reads the installed package's top-level `package.json.icon` independently of the market YAML and README. The path must stay inside the package and name an SVG, PNG, JPEG or WebP of at most 256 KiB. This repository declares `assets/icon.png`, a 256×256 version of the same logo; the README's `assets/logo.png` exceeds that limit. `npm run check` checks the declaration, file and size, and `files` includes `assets/**` in the published package. Older installations need a package update; the host owns metadata refresh for running instances.
+
 Screenshots are declared in **this** repo (`screenshots.json`), not over there — so updating them is a push here rather than another PR.

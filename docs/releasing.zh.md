@@ -111,4 +111,6 @@ npm trust list @crosery/dsh-viewer
 
 市场条目可选的 `icon:` 指向一张 GitHub 托管的 HTTPS 位图（`png`、`jpg`、`jpeg` 或 `webp`）；卡片约 96px，方形图更清楚。SVG 与第三方图床会被拒绝。不声明图标时，市场回退到作者的 GitHub 头像。
 
+DSH 原生「已安装插件」独立读取已安装包的顶层 `package.json.icon`，不读取市场 YAML 或 README。它必须指向包目录内的 SVG、PNG、JPEG 或 WebP，最多 256 KiB。本仓库声明 `assets/icon.png`（同款 logo 的 256×256 版本）；README 的 `assets/logo.png` 超过该限制，不能直接用作原生图标。`npm run check` 检查声明、文件存在和大小；`files` 中的 `assets/**` 负责随包发布。已安装旧版需要更新包，运行中的实例如何刷新由宿主决定。
+
 截图声明在**本仓库**（`screenshots.json`），不在那边——所以换截图是往这里推一次，而不是再提一个 PR。
