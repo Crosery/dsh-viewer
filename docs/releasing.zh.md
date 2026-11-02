@@ -107,7 +107,7 @@ npm trust list @crosery/dsh-viewer
 - **仓库满 1 天。** 没有提交数门槛。这一项自动检查，暂未达到年龄线时，达标后可以重新提交。
 - **描述会被当作声明，拿去对着代码核。** 写了 36 种扩展名就得真有 36 种。`npm run check` 存在的理由正是让两份 README 一直属实。
 
-是否发布 npm 不影响收录。市场从 registry 自动发现 npm 映射；已发布包的 `repository` 必须指回 `https://github.com/Crosery/dsh-viewer`。不要在市场 YAML 条目里添加 `npm:`，schema 会拒绝这个字段。映射发现后，市场才能展示 npm 下载量和 npm 安装入口。
+是否发布 npm 不影响收录。市场从 registry 自动发现 npm 映射；已发布包的 `repository` 必须指回 `https://github.com/Crosery/dsh-viewer`。不要在市场 YAML 条目里添加 `npm:`，schema 会拒绝这个字段。映射发现后，市场才能展示 npm 下载量和 npm 安装入口。市场的 format-1 索引从已发布包的 `engines.dsh` 读取支持范围；该值必须与所有 harness peer 范围完全一致，自动追随脚本同步更新两者，`npm run check` 拒绝漂移。市场每天重新采集，合并条目后的即时构建只使用缓存。
 
 市场条目可选的 `icon:` 指向一张 GitHub 托管的 HTTPS 位图（`png`、`jpg`、`jpeg` 或 `webp`）；卡片约 96px，方形图更清楚。SVG 与第三方图床会被拒绝。不声明图标时，市场回退到作者的 GitHub 头像。
 

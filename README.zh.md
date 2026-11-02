@@ -48,7 +48,7 @@ PDF 与本地网页，实时渲染：
 ## 安装
 
 ```sh
-dsh plugin --profile web add github:crosery/dsh-viewer
+dsh plugin --profile web add @crosery/dsh-viewer
 ```
 
 然后把包名加进 profile `package.json` 的 `dsh.profile.bundles`，并**重启 profile**——bundle 成员变更不走热重载。

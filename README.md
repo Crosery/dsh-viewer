@@ -54,7 +54,7 @@ PDF and a local HTML page, live:
 ## Install
 
 ```sh
-dsh plugin --profile web add github:crosery/dsh-viewer
+dsh plugin --profile web add @crosery/dsh-viewer
 ```
 
 Then add the package name to `dsh.profile.bundles` in your profile's `package.json` and **restart the profile** — bundle membership changes do not hot-reload.

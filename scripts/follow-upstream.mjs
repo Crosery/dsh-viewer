@@ -151,6 +151,7 @@ const widened = widenPeers(manifest(), current.tuples)
 if (current.tuples.length > 0) {
   const nextLock = lock()
   nextLock.packages[''].peerDependencies = widened.peerDependencies
+  nextLock.packages[''].engines = widened.engines
   write('package.json', JSON.stringify(widened, null, 2) + '\n')
   write('package-lock.json', JSON.stringify(nextLock, null, 2) + '\n')
   // The sweep exercises the temporarily widened contract. Move the refusal

@@ -117,7 +117,18 @@ describe('the comparator set for one tuple', () => {
       assert.equal(semver.satisfies(future, range), true, name)
     }
     assert.equal(widened.peerDependencies['@deepseek-ai/cordis'], manifest.peerDependencies['@deepseek-ai/cordis'])
+    assert.equal(widened.engines.dsh, widened.peerDependencies['@deepseek-ai/dsh-tools'])
     assert.deepEqual(manifest, before)
+  })
+
+  it('rejects divergent harness peers or engines.dsh before widening', () => {
+    const peerName = '@deepseek-ai/dsh-tools'
+    const divergent = structuredClone(manifest)
+    divergent.peerDependencies[peerName] = `${divergent.peerDependencies[peerName]} || >=9.0.0-alpha.0 <9.0.1-0`
+    assert.throws(() => widenPeers(divergent, [futureTuple]), /harness peer ranges diverge/)
+    const engineMismatch = structuredClone(manifest)
+    engineMismatch.engines = { ...engineMismatch.engines, dsh: '>=9.0.0-alpha.0 <9.0.1-0' }
+    assert.throws(() => widenPeers(engineMismatch, [futureTuple]), /engines.dsh differs/)
   })
 })
 

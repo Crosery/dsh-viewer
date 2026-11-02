@@ -107,7 +107,7 @@ Their [contribution guide](https://github.com/awesome-dsh-plugin/awesome-dsh-plu
 - **Repo age ≥ 1 day.** There is no commit-count requirement. This is checked automatically; a repository just under the age limit can be submitted again once it qualifies.
 - **The description is read as a claim and checked against the code.** If it says 36 extensions, there must be 36. `npm run check` keeps the READMEs honest for exactly this reason.
 
-npm publishing is optional for listing. The market discovers the npm mapping from the registry, and the published package's `repository` must point back to `https://github.com/Crosery/dsh-viewer`. Do not add an `npm:` key to the market YAML: the schema rejects it. Once the mapping is found, storefronts can show npm downloads and npm installs.
+npm publishing is optional for listing. The market discovers the npm mapping from the registry, and the published package's `repository` must point back to `https://github.com/Crosery/dsh-viewer`. Do not add an `npm:` key to the market YAML: the schema rejects it. Once the mapping is found, storefronts can show npm downloads and npm installs. The format-1 market index reads the support range from the published package's `engines.dsh`; it must match every harness peer range exactly. The follow script updates both, and `npm run check` rejects drift. The market refreshes its probes daily; immediate builds after an entry merge use cached probe data.
 
 An optional `icon:` in the market entry points to one GitHub-hosted HTTPS raster (`png`, `jpg`, `jpeg` or `webp`); a square image works best at the approximately 96px tile size. SVG and third-party image hosts are refused. Without an icon, storefronts fall back to the owner's GitHub avatar.
 

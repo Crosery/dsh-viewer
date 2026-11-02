@@ -62,14 +62,25 @@ export function addTuples(range, tuples) {
   return missing.length === 0 ? range : [range, ...missing.map(comparatorSet)].join(' || ')
 }
 
-/** A manifest whose every harness peer admits `tuples` as well. */
+/**
+ * A manifest whose every harness peer and `engines.dsh` admit `tuples`.
+ * All harness peers are one contract: a divergent input is unsafe to widen.
+ */
 export function widenPeers(manifest, tuples) {
-  if (tuples.length === 0) return manifest
-  const peerDependencies = {}
-  for (const [name, range] of Object.entries(manifest.peerDependencies)) {
-    peerDependencies[name] = isHarnessPeer(name) ? addTuples(range, tuples) : range
+  const harness = Object.entries(manifest.peerDependencies ?? {}).filter(([name]) => isHarnessPeer(name))
+  if (harness.length === 0) throw new Error('manifest has no harness peer dependencies')
+  const [, originalRange] = harness[0]
+  const divergent = harness.find(([, range]) => range !== originalRange)
+  if (divergent !== undefined) throw new Error(`harness peer ranges diverge at ${divergent[0]}`)
+  if (manifest.engines?.dsh !== undefined && manifest.engines.dsh !== originalRange) {
+    throw new Error('engines.dsh differs from the harness peer range')
   }
-  return { ...manifest, peerDependencies }
+  const range = addTuples(originalRange, tuples)
+  const peerDependencies = {}
+  for (const [name, value] of Object.entries(manifest.peerDependencies)) {
+    peerDependencies[name] = isHarnessPeer(name) ? range : value
+  }
+  return { ...manifest, engines: { ...(manifest.engines ?? {}), dsh: range }, peerDependencies }
 }
 
 /** `0.2.1` → `0.2.2`, or `0.3.0` for a train that widened the support surface. */

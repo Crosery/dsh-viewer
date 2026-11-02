@@ -140,6 +140,13 @@ for (const [name, range] of Object.entries(pkg.peerDependencies ?? {})) {
   }
   if (pinned !== undefined && !semver.valid(pinned)) fail('devDependencies', `${name} must pin one exact, tested version, not \`${pinned}\``)
 }
+const harnessRanges = Object.entries(pkg.peerDependencies ?? {})
+  .filter(([name]) => name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-'))
+  .map(([, range]) => range)
+const engineRange = pkg.engines?.dsh
+if (engineRange === undefined) fail('engines', 'does not declare engines.dsh, the market-facing harness support range')
+else if (harnessRanges.some((range) => range !== engineRange)) fail('engines', 'engines.dsh differs from a harness peer range')
+
 for (const file of ['docs/harness-compatibility.md', 'docs/harness-compatibility.zh.md']) {
   const text = read(file)
   const unlisted = ADMITTED_TRAINS.filter((train) => !text.includes(`\`${train}\``))
