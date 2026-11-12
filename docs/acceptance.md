@@ -4,6 +4,17 @@
 
 What was verified end to end, on which harness versions, and how. Every number below came from a running host, not from reasoning about one. The v0.1.1 sections at the end are kept as the record of that release.
 
+## 0.3.5: following the trains published 2026-11-12
+
+`node scripts/follow-upstream.mjs` found 1 unrecorded `@deepseek-ai/dsh` version(s) on 2026-11-12 (Node 24.22.2, npm —). `node scripts/sweep-trains.mjs --versions 0.2.2-rc.2` and `node scripts/smoke-boot.mjs --dsh 0.2.2-rc.2`:
+
+| Version | Outcome |
+| --- | --- |
+| `0.2.2-rc.2` | pass: host tsc ok、client tsc ok、209/209 tests |
+
+No source change was needed. The sweep reported no dependency kept at an older pin. These trains were not rendered in a browser by hand.
+
+`node scripts/sweep-trains.mjs --versions 0.2.2-rc.2` and `node scripts/smoke-boot.mjs --dsh 0.2.2-rc.2`, strict (no exemption): all nine stages passed, client graph of 76 entries.
 ## 0.3.4: following the trains published 2026-11-04
 
 `node scripts/follow-upstream.mjs` found 1 unrecorded `@deepseek-ai/dsh` version(s) on 2026-11-04 (Node 24.22.2, npm —). `node scripts/sweep-trains.mjs --versions 0.2.2-rc.1` and `node scripts/smoke-boot.mjs --dsh 0.2.2-rc.1`:

@@ -42,7 +42,7 @@ const PUBLISHED = [
   '0.2.0-rc.1', '0.2.0-rc.2',
   '0.2.1-alpha.1', '0.2.1-alpha.2', '0.2.1-alpha.3', '0.2.1-alpha.4', '0.2.1-alpha.5', '0.2.1-rc.1',
   '0.2.1-rc.2', '0.2.1-rc.3', '0.2.1-rc.4', '0.2.1-rc.5',
-  '0.2.2-alpha.2', '0.2.2-alpha.3', '0.2.2-rc.1',
+  '0.2.2-alpha.2', '0.2.2-alpha.3', '0.2.2-rc.1', '0.2.2-rc.2',
 ]
 describe('peer admission', () => {
   it('admits every published train under both semver rules, 0.0.1-rc.1 included', () => {
@@ -82,7 +82,7 @@ describe('sweep plan', () => {
 
   it('smokes the floor, each tuple head and every dist-tag or desktop version by default', () => {
     const smoked = planCells(['sweep'], facts).filter((r: { smoke: boolean }) => r.smoke).map((r: { cell: string }) => r.cell)
-    assert.deepEqual(smoked, ['0.0.1-rc.5', '0.1.0-rc.8', FLOOR, '0.1.2-rc.1', '0.1.3-alpha.2', '0.1.5-rc.3', '0.1.6-alpha.2', '0.1.7-alpha.2', '0.1.7-rc.2', '0.2.0-rc.2', '0.2.1-rc.5', '0.2.2-rc.1'])
+    assert.deepEqual(smoked, ['0.0.1-rc.5', '0.1.0-rc.8', FLOOR, '0.1.2-rc.1', '0.1.3-alpha.2', '0.1.5-rc.3', '0.1.6-alpha.2', '0.1.7-alpha.2', '0.1.7-rc.2', '0.2.0-rc.2', '0.2.1-rc.5', '0.2.2-rc.2'])
     assert.equal(planCells(['sweep'], facts, 'none').some((r: { smoke: boolean }) => r.smoke), false)
   })
 
