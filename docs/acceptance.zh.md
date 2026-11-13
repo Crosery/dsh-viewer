@@ -4,6 +4,17 @@
 
 在哪些 harness 版本上做过端到端验证、怎么验证的。下面每个数字都来自真实运行的 host，不是对着代码推出来的。末尾的 v0.1.1 各节保留为那次发版的记录。
 
+## 0.3.6：自动追上 2026-11-13 发布的上游版本
+
+`node scripts/follow-upstream.mjs` 在 2026-11-13（Node 24.22.2、npm —）发现 1 个未记录的 `@deepseek-ai/dsh` 版本。`node scripts/sweep-trains.mjs --versions 0.2.2-rc.3` 与 `node scripts/smoke-boot.mjs --dsh 0.2.2-rc.3`：
+
+| 版本 | 结果 |
+| --- | --- |
+| `0.2.2-rc.3` | 通过: host tsc ok、client tsc ok、209/209 测试 |
+
+没有改源码。扫描未报告任何保留旧钉的依赖。这些版本没有人工浏览器实测。
+
+`node scripts/sweep-trains.mjs --versions 0.2.2-rc.3` 与 `node scripts/smoke-boot.mjs --dsh 0.2.2-rc.3`，严格模式（不给豁免）：九个阶段全部通过，客户端图 76 个 entry。
 ## 0.3.5：自动追上 2026-11-12 发布的上游版本
 
 `node scripts/follow-upstream.mjs` 在 2026-11-12（Node 24.22.2、npm —）发现 1 个未记录的 `@deepseek-ai/dsh` 版本。`node scripts/sweep-trains.mjs --versions 0.2.2-rc.2` 与 `node scripts/smoke-boot.mjs --dsh 0.2.2-rc.2`：
